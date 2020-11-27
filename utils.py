@@ -31,11 +31,11 @@ def write_fits(filename, data, header, overwrite=True, verbose=False):
 
 	if filename != '':
 		if overwrite and os.path.exists(filename):
-			print_('overwriting file ...', verbose=verbose, fname=caller)
+			print_('Overwriting file ...', verbose=verbose, fname=caller)
 			os.remove(filename)
 
 		fits.HDUList(fits.PrimaryHDU(data=data, header=header)).writeto(filename) 	
-		print_(f"written file {filename}", verbose=verbose, fname=caller)
+		print_(f"Written file {filename}", verbose=verbose, fname=caller)
 
 
 def elapsed_time(runtime, verbose=False):
@@ -165,6 +165,11 @@ def create_cube(filename='polaris_detector_nr0001.fits.gz', outfile='', wcs='deg
 
 	start_time = time.time()
 	pwd = os.getcwd()
+
+	# Set a global verbose if verbose is enabled
+	if verbose:
+		global VERBOSE
+		VERBOSE = verbose
 
 	# Read data
 	data, hdr = fits.getdata(filename, header=True)
@@ -297,6 +302,10 @@ def radial_average():
 	"""
 	pass
 
+def maxpos():
+	"""
+		Return a tuple with the coordinates of a N-dimensional array.
+	"""
 
 def create_a_decorator():
 	"""
@@ -349,6 +358,7 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', verbose=True, *args,
 	fig.ticks.set_minor_frequency(5)
 
 	# Scalebar
+	# TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
 	if 'alma' not in filename:
 		D = 141 * u.pc
 		scalebar = 50 * u.au
@@ -444,10 +454,6 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	pfrac = np.sqrt(U**2 + Q**2) / I   if not const_pfrac else np.ones(Q.shape)
 	pangle = 0.5 * np.arctan(U/Q) * u.rad.to(u.deg)
 	
-	# Trim pfrac
-	pfrac = np.where(pfrac > 0.019, pfrac, 0)
-	pfrac = np.where(pfrac < 0.035, pfrac, 0)
-
 	# Edit the header to match the observation from IRAS16293B
 	hdr = set_hdr_to_iras16293B(hdr)
 
@@ -532,19 +538,16 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	if add_bfield:
 		print_('Adding magnetic field lines.')
 		B = fits.getdata('/home/jz/phd/zeusTW/scripts/bfield_faceon.fits')
-
-		# Rotate the B-field by 90 to be consistent with the grid rot. in polaris
-		#B[2] = np.rot90(B[2])
-		#B[3] = np.rot90(B[3])
+		B_x, B_y = B[2], B[3]
 
 		# Quadrature sum of B_x and B_y
-		B_strength = np.sqrt(B[2]**2 + B[3]**2)
+		B_strength = np.sqrt(B_x**2 + B_y**2)
 
 		# Normalize the B field vectors
 		B_strength /= B_strength.max() if not const_bfield else B_strength
 
 		# Compute the vector angles in the same way as for polarization
-		B_angle = np.arctan(B[2] / B[3]) * u.rad.to(u.deg)
+		B_angle = np.arctan(B_x / B_y) * u.rad.to(u.deg)
 		B_angle += 90
 
 		write_fits('B.fits', data=B_strength, header=hdr)
@@ -572,7 +575,7 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	return fig
 
 
-def horizontal_cuts(angles, add_obs=False, prefix='', show=True, savefig=None, *args, **kwargs):
+def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True, savefig=None, *args, **kwargs):
 	""" Self-explanatory.
 	"""
 	def angular_offset(d, hdr):
@@ -583,11 +586,22 @@ def horizontal_cuts(angles, add_obs=False, prefix='', show=True, savefig=None, *
 		FOV = naxis1 * cdelt1
 
 		if hdr.get('OBJECT') == 'IRAS_16293-2422B':
-			maxpos = d[332, :]
-		else:
-			maxpos = d[:, 145]
+			cut = d[332, :] 
+			cut = scale_obs * cut if scale_obs is not None else cut
 
-		return np.linspace(-FOV/2, FOV/2, naxis1), maxpos
+		else:
+			cut = d[145, :]
+
+		# Offset from the center of the image
+		offset = np.linspace(-FOV/2, FOV/2, naxis1)
+		
+		# Find the peak position
+		peakpos = np.argmax(cut)
+
+		# Change the offset to be from the peak
+		offset = offset - offset[peakpos]
+
+		return offset, cut
 
 	home = Path.home()
 
@@ -602,7 +616,8 @@ def horizontal_cuts(angles, add_obs=False, prefix='', show=True, savefig=None, *
 		# Drop empty axes, flip and rescale
 		obs = 1e3 * np.fliplr(np.squeeze(obs))
 
-		plt.plot(*angular_offset(obs, hdr_obs), label='IRAS16293B', color='black', *args, **kwargs)
+		label = f'IRAS16293B (x{scale_obs:.1})' if scale_obs else 'IRAS16293B'
+		plt.plot(*angular_offset(obs, hdr_obs), label=label, color='black', ls='-.', *args, **kwargs)
 
 	# Plot the cuts from the simulated observations for every inclination angle
 	for angle in [f'{i}deg' for i in angles]:
@@ -613,13 +628,7 @@ def horizontal_cuts(angles, add_obs=False, prefix='', show=True, savefig=None, *
 		# Drop empty axes. Flip and rescale
 		data = 1e3 * np.fliplr(np.squeeze(data))
 
-		plt.plot(*angular_offset(data, hdr), label=f'{angle}')
-
-	# Manually adding the curve for a_max=10um i=40deg
-	a10um_40deg = Path('../../amax10um/3mm/40deg/data/3mm_40deg_a10um_alma.fits')
-	data, hdr = fits.getdata(a10um_40deg,header=True)
-	data = 1e3 * np.fliplr(np.squeeze(data))
-	plt.plot(*angular_offset(data, hdr), label=r'40deg (a$_{\rm max}$ 10$\mu$m)')
+		plt.plot(*angular_offset(data, hdr), label=f'{angle}', *args, **kwargs)
 
 	# Customize the plot
 	plt.axvline(0, lw=1, ls='--', alpha=0.5, color='grey')
