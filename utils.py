@@ -101,24 +101,29 @@ def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, fo
 		'pc' : 'C'
 	}
 
+	# TO DO: tell it to copy cdelt1A to cdelt1 only if more than one wcs exists.
+	# Because, if no cdelt1A then it will set cdelt1 = None
+
 	for n in [1,2]:
 		for k in keys[1:]:
-			hdr[f'{k}{n}'] = hdr[f'{k}{n}{WCS[wcs]}']
+			hdr[f'{k}{n}'] = hdr.get(f'{k}{n}{WCS[wcs]}', hdr.get(f'{k}{n}'))
 			for a in WCS.values():
-				del hdr[f'{k}{n}{a}']
+				hdr.remove(f'{k}{n}{a}', ignore_missing=True)
 
 	for n in [3,4]:
 		for key in keys:
-			del hdr[f'{key}{n}']
+			hdr.remove(f'{key}{n}', ignore_missing=True)
 
 	# Adjust the header to match obs. from IRAS16293-2422B
 	hdr['CUNIT1'] = 'deg'
 	hdr['CTYPE1'] = 'RA---SIN'
-	hdr['CRPIX1'] = 1 + hdr['NAXIS1'] / 2
+	hdr['CRPIX1'] = 1 + hdr.get('NAXIS1') / 2
+	hdr['CDELT1'] = hdr.get('CDELT1')
 	hdr['CRVAL1'] = np.float64(248.0942916667)
 	hdr['CUNIT2'] = 'deg'
 	hdr['CTYPE2'] = 'DEC--SIN'
-	hdr['CRPIX2'] = 1 + hdr['NAXIS2'] / 2
+	hdr['CRPIX2'] = 1 + hdr.get('NAXIS2') / 2
+	hdr['CDELT2'] = hdr.get('CDELT2')
 	hdr['CRVAL2'] = np.float64(-24.47550000000)
 
 	# Add spectral axis if required
@@ -131,11 +136,11 @@ def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, fo
 		}
 		hdr['NAXIS3'] = 1
 		hdr['CTYPE3'] = 'FREQ'
-		hdr['CRVAL3'] = wls[str(hdr['HIERARCH WAVELENGTH1'])]
+		hdr['CRVAL3'] = wls[str(hdr.get('HIERARCH WAVELENGTH1', '0.0013'))]
 		hdr['CRPIX3'] = np.float64(0.0)
 		hdr['CDELT3'] = np.float64(2000144770.0491333)
 		hdr['CUNIT3'] = 'Hz'
-		hdr['RESTFRQ'] = hdr['CRVAL3']
+		hdr['RESTFRQ'] = hdr.get('CRVAL3')
 		hdr['SPECSYS'] = 'LSRK'
 
 	# Add stokes axis if required
@@ -186,11 +191,11 @@ def create_cube(filename='polaris_detector_nr0001.fits.gz', outfile='', wcs='deg
 
 	# Add emission by self-scattering if required
 	if add_selfscat:
-		if 'scattered emission' in hdr['ETYPE']:
+		if 'scattered emission' in hdr.get('ETYPE', ''):
 			print_('You are adding self-scattered flux to the self-scattered flux. Not gonna happen.')
 			I_ss = np.zeros(I.shape)
 		
-		elif 'thermal emission' in hdr['ETYPE']:
+		elif 'thermal emission' in hdr.get('ETYPE', ''):
 			print_('Adding self-scattered flux to the thermal flux.')
 			if 'dust_polarization' in pwd:
 				pwd = pwd.replace('pa/','')
@@ -198,12 +203,18 @@ def create_cube(filename='polaris_detector_nr0001.fits.gz', outfile='', wcs='deg
 
 				# Change the polarized stokes I for the unpolarized stokes I
 				I_th_unpol = pwd.replace('dust_polarization','dust_emission')
-				I = fits.getdata(I_th_unpol+'/'+filename)[0][0]
+				try:
+					i = fits.getdata(i_th_unpol+'/'+filename)[0][0]
+				except OSError:
+					raise FileNotFoundError(f'file with unpolarized thermal flux does not exist.\nfile: {i_th_unpol+"/"+filename}')
 
 			else:
 				selfscat_file = pwd.replace('dust_emission','dust_scattering')
 
-			I_ss = fits.getdata(selfscat_file + '/' + filename)[0][0]
+			try:
+				I_ss = fits.getdata(selfscat_file + '/' + filename)[0][0]
+			except OSError:
+				raise FileNotFoundError(f'File with self-scattered flux does not exist.\nFile: {selfscat_file+"/"+filename}')
 
 	else:
 		I_ss = np.zeros(I.shape)
@@ -314,6 +325,16 @@ def create_a_decorator():
 	"""
 	pass
 
+def add_comment(filename, comment):
+	"""
+		Read in a fits file and add a new keyword to the header. 
+	""" 
+	data, hdr = fits.getdata(filename, header=True)
+
+	header['NOTE'] = comment
+
+	write_fits(filename, data=data, header=header, overwrite=True)
+
 
 def plot_map(filename, savefig=None, rescale=1, cblabel='', verbose=True, *args, **kwargs):
 	"""
@@ -321,9 +342,6 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', verbose=True, *args,
 	"""
 	from aplpy import FITSFigure	
 	
-	print(f'args:')
-	print(*args)
-
 	fig = FITSFigure(filename, rescale=rescale)
 	fig.show_colorscale(*args, **kwargs)
 
@@ -400,33 +418,42 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	I = data[0][0]
 	Q = data[1][0]
 	U = data[2][0]
-	tau = data[4][0]
+	try:
+		tau = data[4][0]
+	except:
+		tau = np.zeros(I.shape)
 
 	# Add thermal emission to the self-scattered emission if required
 	if add_thermal:
-		if 'thermal emission' in hdr['ETYPE']:
+		if 'thermal emission' in hdr.get('ETYPE', ''):
 			print_('You are adding thermal flux to the thermal flux.')
 			print_('Not gonna happen.')
 			I_th = np.zeros(I.shape)
 		
-		elif 'scattered emission' in hdr['ETYPE']:
+		elif 'scattered emission' in hdr.get('ETYPE', ''):
 			print_('Adding thermal flux to the self-scattered flux.')
 			thermal_file = pwd.replace('dust_scattering','dust_emission')
-			I_th = fits.getdata(thermal_file + '/' + filename)[0][0]
+			try:
+				I_th = fits.getdata(thermal_file + '/' + filename)[0][0]
+			except OSError:
+				raise FileNotFoundError(f'file with thermal flux does not exist.\nfile: {thermal_file+"/"+filename}')
 
 	elif isinstance(add_thermal, str):
-		I_th = fits.getdata(add_thermal)
+		try:
+			I_th = fits.getdata(add_thermal)
+		except OSError:
+			raise FileNotFoundError(f'file with thermal flux does not exist.\nfile: {add_thermal}')
 	
 	else:
 		I_th = np.zeros(I.shape)
 
 	# Add self-scattered emission to the thermal emission if required
 	if add_selfscat:
-		if 'scattered emission' in hdr['ETYPE']:
+		if 'scattered emission' in hdr.get('ETYPE', ''):
 			print_('You are adding self-scattered flux to the self-scattered flux. Not gonna happen.')
 			I_ss = np.zeros(I.shape)
 		
-		elif 'thermal emission' in hdr['ETYPE']:
+		elif 'thermal emission' in hdr.get('ETYPE', ''):
 			print_('Adding self-scattered flux to the thermal flux.')
 			if 'dust_polarization' in pwd:
 				pwd = pwd.replace('pa/','')
@@ -434,15 +461,24 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 
 				# Change the polarized stokes I for the unpolarized stokes I
 				I_th_unpol = pwd.replace('dust_polarization','dust_emission')
-				I = fits.getdata(I_th_unpol+'/'+filename)[0][0]
+				try:
+					I = fits.getdata(I_th_unpol+'/'+filename)[0][0]
+				except OSError:
+					raise FileNotFoundError(f'file with thermal flux does not exist.\nfile: {I_th_unpol+"/"+filename}')
 
 			else:
 				selfscat_file = pwd.replace('dust_emission','dust_scattering')
 
-			I_ss = fits.getdata(selfscat_file + '/' + filename)[0][0]
+			try:
+				I_ss = fits.getdata(selfscat_file + '/' + filename)[0][0]
+			except OSError:
+				raise FileNotFoundError(f'file with self-scattered flux does not exist.\nfile: {selfscat_file+"/"+filename}')
 
 	elif isinstance(add_thermal, str):
-		I_ss = fits.getdata(add_selfscat)
+		try:
+			I_ss = fits.getdata(add_selfscat)
+		except OSError:
+			raise FileNotFoundError(f'file with self-scattered flux does not exist.\nfile: {add_selfscat}')
 
 	else:
 		I_ss = np.zeros(I.shape)
