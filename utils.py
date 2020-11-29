@@ -206,7 +206,8 @@ def create_cube(filename='polaris_detector_nr0001.fits.gz', outfile='', wcs='deg
 				try:
 					i = fits.getdata(i_th_unpol+'/'+filename)[0][0]
 				except OSError:
-					raise FileNotFoundError(f'file with unpolarized thermal flux does not exist.\nfile: {i_th_unpol+"/"+filename}')
+					raise FileNotFoundError(f'File with unpolarized thermal flux does not exist.\n\
+											File: {i_th_unpol+"/"+filename}')
 
 			else:
 				selfscat_file = pwd.replace('dust_emission','dust_scattering')
@@ -214,7 +215,8 @@ def create_cube(filename='polaris_detector_nr0001.fits.gz', outfile='', wcs='deg
 			try:
 				I_ss = fits.getdata(selfscat_file + '/' + filename)[0][0]
 			except OSError:
-				raise FileNotFoundError(f'File with self-scattered flux does not exist.\nFile: {selfscat_file+"/"+filename}')
+				raise FileNotFoundError(f'File with self-scattered flux does not exist.\n\
+										File: {selfscat_file+"/"+filename}')
 
 	else:
 		I_ss = np.zeros(I.shape)
@@ -436,13 +438,15 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 			try:
 				I_th = fits.getdata(thermal_file + '/' + filename)[0][0]
 			except OSError:
-				raise FileNotFoundError(f'file with thermal flux does not exist.\nfile: {thermal_file+"/"+filename}')
+				raise FileNotFoundError(f'File with thermal flux does not exist.\n\
+										File: {thermal_file+"/"+filename}')
 
 	elif isinstance(add_thermal, str):
 		try:
 			I_th = fits.getdata(add_thermal)
 		except OSError:
-			raise FileNotFoundError(f'file with thermal flux does not exist.\nfile: {add_thermal}')
+			raise FileNotFoundError(f'File with thermal flux does not exist.\n'+
+									'File: {add_thermal}')
 	
 	else:
 		I_th = np.zeros(I.shape)
@@ -464,7 +468,8 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 				try:
 					I = fits.getdata(I_th_unpol+'/'+filename)[0][0]
 				except OSError:
-					raise FileNotFoundError(f'file with thermal flux does not exist.\nfile: {I_th_unpol+"/"+filename}')
+					raise FileNotFoundError(f'File with thermal flux does not exist.\n\
+											File: {I_th_unpol+"/"+filename}')
 
 			else:
 				selfscat_file = pwd.replace('dust_emission','dust_scattering')
@@ -472,13 +477,15 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 			try:
 				I_ss = fits.getdata(selfscat_file + '/' + filename)[0][0]
 			except OSError:
-				raise FileNotFoundError(f'file with self-scattered flux does not exist.\nfile: {selfscat_file+"/"+filename}')
+				raise FileNotFoundError(f'File with self-scattered flux does not exist.\n\
+										File: {selfscat_file+"/"+filename}')
 
 	elif isinstance(add_thermal, str):
 		try:
 			I_ss = fits.getdata(add_selfscat)
 		except OSError:
-			raise FileNotFoundError(f'file with self-scattered flux does not exist.\nfile: {add_selfscat}')
+			raise FileNotFoundError(f'File with self-scattered flux does not exist.\n\
+									File: {add_selfscat}')
 
 	else:
 		I_ss = np.zeros(I.shape)
