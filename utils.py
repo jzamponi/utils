@@ -621,7 +621,7 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True, savefig=None, *args, **kwargs):
 	""" Self-explanatory.
 	"""
-	def angular_offset(d, hdr):
+	def angular_offset(d, hdr, angle='0deg'):
 		""" Calculate the angular offset (assumes angular scale is in degrees)
 		"""
 		cdelt1 = hdr.get('CDELT1') * u.deg.to(u.arcsec)
@@ -633,12 +633,28 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True,
 			cut = scale_obs * cut if scale_obs is not None else cut
 
 		else:
-			cut = d[145, :]
+			# y_rotated
+			line_with_max = {
+				'0deg': 143,
+				'10deg': 145,
+				'20deg': 145,
+				'30deg': 146,
+				'40deg': 143
+			}
+			# x_rotated
+			line_with_max = {
+				'0deg': 143,
+				'10deg': 144,
+				'20deg': 144,
+				'30deg': 143,
+				'40deg': 143
+			}
 
 		# Offset from the center of the image
 		offset = np.linspace(-FOV/2, FOV/2, naxis1)
 		
 		# Find the peak position
+		cut = d[line_with_max.get(angle, default=naxis1/2)]
 		peakpos = np.argmax(cut)
 
 		# Change the offset to be from the peak
@@ -665,7 +681,7 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True,
 	# Plot the cuts from the simulated observations for every inclination angle
 	for angle in [f'{i}deg' for i in angles]:
 		# Read data
-		filename = prefix/f'{angle}/data/3mm_{angle}_a100um_alma.fits'
+		filename = prefix/f'{angle}/x_rotated/data/3mm_{angle}_a100um_alma.fits'
 		data, hdr = fits.getdata(filename, header=True)
 
 		# Drop empty axes. Flip and rescale
@@ -686,3 +702,59 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True,
 
 	if show:
 		plt.show()
+
+
+def read_polaris_temp(binfile='grid_temp.dat'):
+	""" Read the binary output from a Polaris dust heating 
+		simulation and return the dust temperature field.
+	"""
+	import struct 
+
+	with open(binfile, 'rb') as f:
+		# Read grid ID
+		ID = struct.unpack("H", f.read(2))
+
+		# Read N quantities
+		n, = struct.unpack("H", f.read(2))
+		for q in range(n):
+			f'q: {struct.unpack("H", f.read(2))}'
+
+		# Read radial boundaries 
+		r_in = struct.unpack("d", f.read(8))
+		r_out = struct.unpack("d", f.read(8))
+
+		# Read number of cells on each axis
+		n_r, = struct.unpack("H", f.read(2))
+		n_t, = struct.unpack("H", f.read(2))
+		n_p, = struct.unpack("H", f.read(2))
+		n_cells = n_r * n_t * n_p
+
+		# Read shape parameters (0 if cell borders are given)
+		struct.unpack("d", f.read(8))
+		struct.unpack("d", f.read(8))
+		struct.unpack("d", f.read(8))
+
+		# Read r coords
+		for r in range(n_r):
+			struct.unpack("d", f.read(8))
+		# Read n_t coords
+		for t in range(n_t):
+			struct.unpack("d", f.read(8))
+		# Read n_p coords
+		for p in range(n_p):
+			struct.unpack("d", f.read(8))
+
+		temp = np.zeros(n_cells)
+		# Iterate over cells
+		for c in range(n_cells):
+			# Read first 6 quantities
+			for q in range(6):
+				struct.unpack("d", f.read(8))
+			# Read temperature
+			temp[c], = struct.unpack("d", f.read(8))
+
+			# Move the pointer till the end of the row
+			for q in range(3):
+				struct.unpack("d", f.read(8))
+
+		return temp
