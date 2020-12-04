@@ -47,37 +47,6 @@ def elapsed_time(runtime, verbose=False):
 	print_(f"Elapsed time: {run_time}", verbose=verbose, fname=caller)
 		
 
-def stats(filename, slice=None, verbose=False):
-	"""
-		Compute the statistics of a file.
-	"""
-	
-	# Read data
-	if isinstance(filename, str):
-		data, hdr = fits.getdata(filename, header=True)
-
-		if isinstance(slice, int):
-			data = data[slice]
-		elif isinstance(slice, list) and len(slice) == 2:
-			data = data[slice[0], slice[1]] 
-	else:
-		data = np.array(filename)
-	
-	# Set the relevant quantities
-	stat = {
-		'max': data.max(),
-		'mean': data.mean(),
-		'min': data.min(),
-		'std': data.std()
-	}
-
-	# Print statistics if verbose enabled
-	for label, value in stat.items():
-		print_(f'{label}: {value}', verbose) 
-	
-	return stat
-
-
 def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, for_casa=False, verbose=False):
 	"""
 		Adapt the header to match that of the ALMA observation of IRAS16293-2422B.
@@ -315,17 +284,66 @@ def radial_average():
 	"""
 	pass
 
-def maxpos():
+def stats(filename, slice=None, verbose=False):
+	"""
+		Compute the statistics of a file.
+	"""
+	
+	# Read data
+	if isinstance(filename, str):
+		data, hdr = fits.getdata(filename, header=True)
+
+		if isinstance(slice, int):
+			data = data[slice]
+		elif isinstance(slice, list) and len(slice) == 2:
+			data = data[slice[0], slice[1]] 
+	else:
+		data = np.array(filename)
+	
+	# Set the relevant quantities
+	stat = {
+		'max': data.max(),
+		'mean': data.mean(),
+		'min': data.min(),
+		'std': data.std(),
+		'maxpos': maxpos(data),
+		'minpos': minpos(data)
+	}
+
+	# Print statistics if verbose enabled
+	for label, value in stat.items():
+		print_(f'{label}: {value}', verbose) 
+	
+	return stat
+
+
+def maxpos(data):
 	"""
 		Return a tuple with the coordinates of a N-dimensional array.
 	"""
+	# Read data from fits file if data is string
+	if isinstance(data, str):
+		data = fits.getdata(data)
 
-def create_a_decorator():
+	# Remove empty axes
+	data = np.squeeze(data)
+	
+	return np.unravel_index(data.argmax(), data.shape)
+	
+	
+def minpos(data):
 	"""
-		Create a function decorator that wraps the function within a try catch block
-		to control a KeyboardInterrupt.
+		Return a tuple with the coordinates of a N-dimensional array.
 	"""
-	pass
+	# Read data from fits file if data is string
+	if isinstance(data, str):
+		data = fits.getdata(data)
+
+	# Remove empty axes
+	data = np.squeeze(data)
+	
+	return np.unravel_index(data.argmin(), data.shape)
+
 
 def add_comment(filename, comment):
 	"""
@@ -704,7 +722,7 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True,
 		plt.show()
 
 
-def read_polaris_temp(binfile='grid_temp.dat'):
+def get_polaris_temp(binfile='grid_temp.dat'):
 	""" Read the binary output from a Polaris dust heating 
 		simulation and return the dust temperature field.
 	"""
@@ -717,7 +735,7 @@ def read_polaris_temp(binfile='grid_temp.dat'):
 		# Read N quantities
 		n, = struct.unpack("H", f.read(2))
 		for q in range(n):
-			f'q: {struct.unpack("H", f.read(2))}'
+			struct.unpack("H", f.read(2))
 
 		# Read radial boundaries 
 		r_in = struct.unpack("d", f.read(8))
