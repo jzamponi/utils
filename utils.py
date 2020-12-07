@@ -636,47 +636,31 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	return fig
 
 
-def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True, savefig=None, *args, **kwargs):
+def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, prefix='', show=True, savefig=None, *args, **kwargs):
 	""" Self-explanatory.
 	"""
-	def angular_offset(d, hdr, angle='0deg'):
+	def angular_offset(d, hdr):
 		""" Calculate the angular offset (assumes angular scale is in degrees)
 		"""
 		cdelt1 = hdr.get('CDELT1') * u.deg.to(u.arcsec)
 		naxis1 = hdr.get('NAXIS1')
 		FOV = naxis1 * cdelt1
 
-		if hdr.get('OBJECT') == 'IRAS_16293-2422B':
-			cut = d[332, :] 
-			cut = scale_obs * cut if scale_obs is not None else cut
-
-		else:
-			# y_rotated
-			line_with_max = {
-				'0deg': 143,
-				'10deg': 145,
-				'20deg': 145,
-				'30deg': 146,
-				'40deg': 143
-			}
-			# x_rotated
-			line_with_max = {
-				'0deg': 143,
-				'10deg': 144,
-				'20deg': 144,
-				'30deg': 143,
-				'40deg': 143
-			}
+		# Find the peak in the image and cut along the given axis
+		cut = maxpos(d)[axis]
+		if axis == 0:
+			cut = d[cut, :]
+		elif axis == 1:
+			cut = d[:, cut]	
 
 		# Offset from the center of the image
 		offset = np.linspace(-FOV/2, FOV/2, naxis1)
 		
-		# Find the peak position
-		cut = d[line_with_max.get(angle, default=naxis1/2)]
-		peakpos = np.argmax(cut)
+		# Find the peak position along the cut
+		cut_peak = np.argmax(cut)
 
-		# Change the offset to be from the peak
-		offset = offset - offset[peakpos]
+		# Shift the angular offset to be centered on the peak
+		offset = offset - offset[cut_peak]
 
 		return offset, cut
 
@@ -688,7 +672,7 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True,
 	# Plot the cut from the real observation if required
 	if add_obs:
 		# Read data
-		obs, hdr_obs = fits.getdata(home/'phd/polaris/sourceB.image.fits', header=True)
+		obs, hdr_obs = fits.getdata(home/'phd/polaris/sourceB_3mm.fits', header=True)
 	
 		# Drop empty axes, flip and rescale
 		obs = 1e3 * np.fliplr(np.squeeze(obs))
@@ -699,7 +683,7 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, prefix='', show=True,
 	# Plot the cuts from the simulated observations for every inclination angle
 	for angle in [f'{i}deg' for i in angles]:
 		# Read data
-		filename = prefix/f'{angle}/x_rotated/data/3mm_{angle}_a100um_alma.fits'
+		filename = prefix/f'{angle}/data/3mm_{angle}_a100um_alma.fits'
 		data, hdr = fits.getdata(filename, header=True)
 
 		# Drop empty axes. Flip and rescale
