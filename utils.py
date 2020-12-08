@@ -12,6 +12,55 @@ from astropy.io import ascii, fits
 from astropy import units as u
 from astropy import constants as c
 
+home = Path.home()
+
+class Observation:
+	""" Contains data from real observations. """
+	def __init__(self, name='', lam='3mm'):
+		self.name = name
+		self.data, self.header = fits.getdata(home/f'phd/polaris/sourceB_{lam}.fits', header=True)
+		self.data, self.header = fits.getdata(home/f'phd/polaris/sourceB_{lam}.fits', header=True)
+
+	def rescale(self, factor):
+		self.data = factor * self.data
+	
+	def drop_axis(self, drop=True):
+		self.data = np.squeeze(self.data) if drop else self.data	
+
+	def fliplr(self, flip=True):
+		self.data = np.fliplr(self.data) if flip else self.data
+
+	def flipud(self, flip=True):
+		self.data = np.flipud(self.data) if flip else self.data
+
+	# TO DO: bring the function  set_hdr_to_iras16293() into this object
+
+
+class Bfield:
+	def __init__(self):
+		# Read bfield data from Fits file
+		self.data = fits.getdata(home/'phd/zeusTW/scripts/bfield_faceon.fits')
+		# x,y-components from B field
+		self.x = B[2]
+		self.y = B[3]
+
+	def get_strength(self, normalize=False):
+		# Quadrature sum of B_x and B_y
+		self.strength = np.sqrt(self.x**2 + self.y**2)
+
+		# Normalize the B field vectors if requested
+		self.strength /= self.strength.max() if not normalize else self.strength
+
+		return self.strength
+	
+	def get_angle(self):
+		# Compute the vector angles in the same way as for polarization
+		self.angle = np.arctan(self.x / self.y) * u.rad.to(u.deg)
+		self.angle += 90
+		
+		return angle
+
+
 def print_(string, verbose=None, fname=None, *args):
 
 	# Get the name of the calling function by tracing one level up in the stack
@@ -598,21 +647,11 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	# TO DO: ADD A LABEL TO INDICATE WHAT VECTORS ARE WHAT 
 	if add_bfield:
 		print_('Adding magnetic field lines.')
-		B = fits.getdata('/home/jz/phd/zeusTW/scripts/bfield_faceon.fits')
-		B_x, B_y = B[2], B[3]
 
-		# Quadrature sum of B_x and B_y
-		B_strength = np.sqrt(B_x**2 + B_y**2)
+		B = Bfield()
 
-		# Normalize the B field vectors
-		B_strength /= B_strength.max() if not const_bfield else B_strength
-
-		# Compute the vector angles in the same way as for polarization
-		B_angle = np.arctan(B_x / B_y) * u.rad.to(u.deg)
-		B_angle += 90
-
-		write_fits('B.fits', data=B_strength, header=hdr)
-		write_fits('Bangle.fits', data=B_angle, header=hdr)
+		write_fits('B.fits', data=B.get_strength(const_pfrac), header=hdr)
+		write_fits('Bangle.fits', data=B.get_angle(), header=hdr)
 
 		fig.show_vectors(
 			'B.fits', \
@@ -636,7 +675,7 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	return fig
 
 
-def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, prefix='', show=True, savefig=None, *args, **kwargs):
+def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', amax='100um', prefix='', show=True, savefig=None, *args, **kwargs):
 	""" Self-explanatory.
 	"""
 	def angular_offset(d, hdr):
@@ -664,26 +703,26 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, prefix='', sh
 
 		return offset, cut
 
-	home = Path.home()
-
 	# Set the path prefix as a Path object, if provided
 	prefix = Path(prefix)
 	
 	# Plot the cut from the real observation if required
 	if add_obs:
 		# Read data
-		obs, hdr_obs = fits.getdata(home/'phd/polaris/sourceB_3mm.fits', header=True)
-	
+		obs = Observation(name='IRAS16293B', lam=lam)
+		
 		# Drop empty axes, flip and rescale
-		obs = 1e3 * np.fliplr(np.squeeze(obs))
+		obs.rescale(1e3)
+		obs.drop_axis()
+		obs.fliplr()
 
-		label = f'IRAS16293B (x{scale_obs:.1})' if scale_obs else 'IRAS16293B'
-		plt.plot(*angular_offset(obs, hdr_obs), label=label, color='black', ls='-.', *args, **kwargs)
+		label = f'{obs.name} (x{scale_obs:.1})' if scale_obs else obs.name 
+		plt.plot(*angular_offset(obs.data, obs.header), label=label, color='black', ls='-.', *args, **kwargs)
 
 	# Plot the cuts from the simulated observations for every inclination angle
 	for angle in [f'{i}deg' for i in angles]:
 		# Read data
-		filename = prefix/f'{angle}/data/3mm_{angle}_a100um_alma.fits'
+		filename = prefix/f'{angle}/data/{lam}_{angle}_a{amax}_alma.fits'
 		data, hdr = fits.getdata(filename, header=True)
 
 		# Drop empty axes. Flip and rescale
