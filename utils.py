@@ -156,7 +156,8 @@ def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, fo
 		hdr['CTYPE3'] = 'FREQ'
 		hdr['CRVAL3'] = wls[str(hdr.get('HIERARCH WAVELENGTH1', '0.0013'))]
 		hdr['CRPIX3'] = np.float64(0.0)
-		hdr['CDELT3'] = np.float64(2000144770.0491333)
+		#hdr['CDELT3'] = np.float64(2.000144770049E+09)
+		hdr['CDELT3'] = np.float64(3.515082631882E+10)
 		hdr['CUNIT3'] = 'Hz'
 		hdr['RESTFRQ'] = hdr.get('CRVAL3')
 		hdr['SPECSYS'] = 'LSRK'
@@ -326,12 +327,67 @@ def fill_gap(filename, outfile=None, x1=143, x2=158, y1=143, y2=157, threshold=1
 		fits.writeto(outfile, data=full, header=hdr, overwrite=True)
 
 
-def radial_average():
+def circular_mask(shape, c, r, angle_range):
+    """
+    Return a boolean mask for a circular sector. The start/stop angles in  
+    `angle_range` should be given in clockwise order.
+    """
+
+    x,y = np.ogrid[:shape[0],:shape[1]]
+    cx, cy = c
+    a_i, a_f = np.deg2rad(angle_range)
+
+    # Ensure stop angle > start angle
+    if a_f < a_i:
+            a_f += 2*np.pi
+
+    # Convert cartesian --> polar coordinates
+    r2 = (x-cx)**2 + (y-cy)**2
+    theta = np.arctan2(x-cx,y-cy) - a_i
+
+    # Wrap angles between 0 and 2*pi
+    theta %= (2*np.pi)
+
+    # Circular mask
+    circmask = r2 <= r*r
+
+    # Angular mask
+    anglemask = theta <= (a_f-a_i)
+
+    return circmask * anglemask
+
+
+def radial_average(data, step=1):
 	"""
 		Computes the radial average of a 2D array by averaging the values 
-		within increasing concentric circumferences.
+		within consecutive concentric circumferences from the border to
+		the center.
 	"""
-	pass
+	# Read data from fits file if filename is provided
+	if isinstance(data, str):
+		data, hdr = fits.getdata(data, header=True)
+
+	# Drop empty axes
+	data = data.squeeze()
+	
+	# Get the center of the array
+	map_radius_x = int(data[0].size / 2)
+	map_radius_y = int(data[1].size / 2)
+	center = (map_radius_x, map_radius_y)
+
+	# Masks are created from the border to the center because otherwise
+	# all masks other than r=0 would already be NaN.
+	averages = np.zeros(np.arange(map_radius_x).shape)
+	radii = np.arange(0, map_radius_x, step)[::-1]
+
+	for i,r in enumerate(radii):
+		mask = circular_mask(data.shape, center, r, angle_range=(0,360))
+		data[~mask] = float('nan')
+		averages[i] = np.nanmean(data)
+
+	# Reverse the averages to be given from the center to the border
+	return averages[::-1]
+
 
 def stats(filename, slice=None, verbose=False):
 	"""
@@ -673,6 +729,11 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	elapsed_time(time.time() - start, verbose)
 
 	return fig
+
+
+def plot_spectral_index(lam1, lam2): 
+	""" Plot the spectral index between observations at two wavelengths."""
+	pass
 
 
 def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', amax='100um', prefix='', show=True, savefig=None, *args, **kwargs):
