@@ -12,6 +12,8 @@ from astropy.io import ascii, fits
 from astropy import units as u
 from astropy import constants as c
 
+import toolkit as tlk
+
 home = Path.home()
 
 class Observation:
@@ -95,6 +97,14 @@ def elapsed_time(runtime, verbose=False):
 
 	print_(f"Elapsed time: {run_time}", verbose=verbose, fname=caller)
 		
+
+def ring_bell(soundfile=None):
+	""" Play a sound from system. Useful to notify when another function finishes."""
+	if isinstance(soundfile, str):
+		os.system(f'paplay {soundfile}')
+	else:
+		os.system('paplay /usr/share/sounds/freedesktop/stereo/service-login.oga >/dev/null 2>&1')
+
 
 def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, for_casa=False, verbose=False):
 	"""
@@ -731,9 +741,34 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 	return fig
 
 
-def plot_spectral_index(lam1, lam2): 
-	""" Plot the spectral index between observations at two wavelengths."""
-	pass
+def spectral_index(lam1, lam2, show=True, savefig=None): 
+	""" Calculate the spectral index between observations at two wavelengths.
+		lam1 must be shorter than lam2.
+	"""
+	# Read data from Fits file if provided as a string
+	if isinstance(lam1, str):
+		lam1, hdr1 = fits.getdata(lam1, header=True)
+		lam1 = lam1.squeeze()
+	if isinstance(lam2, str):
+		lam2, hdr2 = fits.getdata(lam2, header=True)
+		lam2 = lam2.squeeze()
+	
+	# Calculate the spectral index
+	alpha = (np.log10(lam1) - np.log10(lam2)) / (np.log10(1.3) - np.log10(3.0))
+
+	# Derive the opacity index
+	beta = alpha - 2
+	
+	plt.imshow(beta, cmap='magma')
+	plt.colorbar().set_label(r'Spectral index ($\beta$)')
+	
+	if show:
+		plt.show()
+
+	if isinstance(savefig, str) and len(savefig) > 0:
+		fig.save(savefig)
+
+	return beta
 
 
 def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', amax='100um', prefix='', show=True, savefig=None, *args, **kwargs):
@@ -752,6 +787,13 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 			cut = d[cut, :]
 		elif axis == 1:
 			cut = d[:, cut]	
+
+		# Convert data into brightness temp. to be independent of beam size
+		cut = tlk.brightness_temperature(\
+				cut, \
+				nu=hdr.get('RESTFRQ'), \
+				fwhm=[hdr.get('bmaj')*3600, hdr.get('bmin')*3600] \
+			)
 
 		# Offset from the center of the image
 		offset = np.linspace(-FOV/2, FOV/2, naxis1)
@@ -773,7 +815,7 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 		obs = Observation(name='IRAS16293B', lam=lam)
 		
 		# Drop empty axes, flip and rescale
-		obs.rescale(1e3)
+		#obs.rescale(1e3)
 		obs.drop_axis()
 		obs.fliplr()
 
@@ -787,7 +829,7 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 		data, hdr = fits.getdata(filename, header=True)
 
 		# Drop empty axes. Flip and rescale
-		data = 1e3 * np.fliplr(np.squeeze(data))
+		data = np.fliplr(np.squeeze(data))
 
 		plt.plot(*angular_offset(data, hdr), label=f'{angle}', *args, **kwargs)
 
@@ -796,7 +838,7 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 	plt.legend(ncol=1, loc='upper left')
 	plt.title('Horizontal cut for different inclination angles.')
 	plt.xlabel('Angular offset (arcseconds)')
-	plt.ylabel('mJy/beam')
+	plt.ylabel(r'$T_{\rm b}$ (K)')
 	plt.xlim(-0.35, 0.35)
 
 	if isinstance(savefig, str) and len(savefig)>0:
