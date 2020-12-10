@@ -471,6 +471,25 @@ def add_comment(filename, comment):
 	write_fits(filename, data=data, header=header, overwrite=True)
 
 
+def edit_keyword(filename, key, value, verbose=True):
+	"""
+		Read in a fits file and change the value of a given keyword.
+	""" 
+	data, hdr = fits.getdata(filename, header=True)
+
+	value_ = hdr.get(key, default=None)
+	if value_ is None:
+		print_(f'Keyword {key} unexistent. Adding it ...', verbose=verbose)
+		
+	else:
+		print_(f'Keyword {key} already exists.', verbose=verbose)
+		print_(f'Changing it from {value_} to {value}.', verbose=verbose)
+
+	hdr[key] = value
+
+	write_fits(filename, data=data, header=hdr, overwrite=True)
+
+
 def plot_map(filename, savefig=None, rescale=1, cblabel='', verbose=True, *args, **kwargs):
 	"""
 		Plot a fits file using the APLPy library.
