@@ -12,9 +12,13 @@ from astropy.io import ascii, fits
 from astropy import units as u
 from astropy import constants as c
 
-import toolkit as tlk
-
 home = Path.home()
+
+class color:
+    fail = '\033[91m'
+    bold = '\033[1m'
+    none = '\033[0m'
+
 
 class Observation:
 	""" Contains data from real observations. """
@@ -63,7 +67,7 @@ class Bfield:
 		return angle
 
 
-def print_(string, verbose=None, fname=None, *args):
+def print_(string, verbose=None, fname=None, bold=False, fail=False, *args, **kwargs):
 
 	# Get the name of the calling function by tracing one level up in the stack
 	fname = sys._getframe(1).f_code.co_name if fname is None else fname
@@ -74,7 +78,12 @@ def print_(string, verbose=None, fname=None, *args):
 			verbose = True
 
 	if verbose:
-		print(f"[{fname}] {string}", *args)
+		if bold:
+			print(f"{color.bold}[{fname}] {string} {color.none}", *args, **kwargs)
+		elif fail:
+			print(f"{color.fail}[{fname}] {string} {color.none}", *args, **kwargs)
+		else:
+			print(f"[{fname}] {string}", *args, **kwargs)
 
 
 def write_fits(filename, data, header, overwrite=True, verbose=False):
@@ -142,6 +151,10 @@ def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, fo
 		for key in keys:
 			hdr.remove(f'{key}{n}', ignore_missing=True)
 
+	# Remove extra keywords PC3_* & PC*_3 added by CASA tasks and associated to a 3rd dim.
+	if not any([spec_axis, stokes_axis, for_casa]):
+		[hdr.remove(k, True) for k in ['PC1_3','PC2_3','PC3_3','PC3_1','PC3_2']]
+
 	# Adjust the header to match obs. from IRAS16293-2422B
 	hdr['CUNIT1'] = 'deg'
 	hdr['CTYPE1'] = 'RA---SIN'
@@ -166,6 +179,7 @@ def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, fo
 		hdr['CTYPE3'] = 'FREQ'
 		hdr['CRVAL3'] = wls[str(hdr.get('HIERARCH WAVELENGTH1', '0.0013'))]
 		hdr['CRPIX3'] = np.float64(0.0)
+		# TO DO: check this!
 		#hdr['CDELT3'] = np.float64(2.000144770049E+09)
 		hdr['CDELT3'] = np.float64(3.515082631882E+10)
 		hdr['CUNIT3'] = 'Hz'
@@ -491,7 +505,7 @@ def edit_keyword(filename, key, value, verbose=True):
 	write_fits(filename, data=data, header=hdr, overwrite=True)
 
 
-def plot_map(filename, savefig=None, rescale=1, cblabel='', verbose=True, *args, **kwargs):
+def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, verbose=True, *args, **kwargs):
 	"""
 		Plot a fits file using the APLPy library.
 	"""
@@ -517,7 +531,7 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', verbose=True, *args,
 	
 	# Colorbar
 	fig.add_colorbar()
-	fig.colorbar.set_location('top')
+	fig.colorbar.set_location('right')
 	fig.colorbar.set_axis_label_text(cblabel)
 	fig.colorbar.set_axis_label_font(size=15, weight=15)
 	fig.colorbar.set_font(size=15, weight=15)
@@ -532,23 +546,19 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', verbose=True, *args,
 
 	# Scalebar
 	# TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
-	if 'alma' not in filename:
-		D = 141 * u.pc
-		scalebar = 50 * u.au
-		scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
-		fig.add_scalebar(scalebar_ * u.arcsec)
-		fig.scalebar.set_color('white')
-		fig.scalebar.set_corner('bottom right')
-		fig.scalebar.set_font(size=23)
-		fig.scalebar.set_linewidth(3)
-		fig.scalebar.set_label(f'{int(scalebar.value)} {scalebar.unit}')
+	D = 141 * u.pc
+	scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
+	fig.add_scalebar(scalebar_ * u.arcsec)
+	fig.scalebar.set_color('grey')
+	fig.scalebar.set_corner('bottom right')
+	fig.scalebar.set_font(size=23)
+	fig.scalebar.set_linewidth(3)
+	fig.scalebar.set_label(f'{int(scalebar.value)} {scalebar.unit}')
 
 	if isinstance(savefig, str) and len(savefig) > 0:
 		fig.save(savefig)
 
 	return fig
-
-
 
 
 def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensity', wcs='deg', rotate=90, step=20, scale=50, fmin=None, fmax=None, savefig=None, show=True, vector_color='tab:purple', add_thermal=False, add_selfscat=False, add_bfield=False, const_bfield=False, const_pfrac=False, verbose=True, *args, **kwargs):
@@ -760,27 +770,56 @@ def polarization_map(filename='polaris_detector_nr0001.fits.gz', render='intensi
 
 	return fig
 
+def imsmooth(filename, bmaj, bmin):
+	""" Own implementation of the imsmooth task from the CASA package. """
+	pass
 
-def spectral_index(lam1, lam2, show=True, savefig=None): 
+
+def spectral_index(lam1_, lam2_, beta=False, use_aplpy=True, cmap='PuOr', vmin=1.7, vmax=3.5, show=True, savefig=None): 
 	""" Calculate the spectral index between observations at two wavelengths.
 		lam1 must be shorter than lam2.
 	"""
-	# Read data from Fits file if provided as a string
-	if isinstance(lam1, str):
-		lam1, hdr1 = fits.getdata(lam1, header=True)
-		lam1 = lam1.squeeze()
-	if isinstance(lam2, str):
-		lam2, hdr2 = fits.getdata(lam2, header=True)
-		lam2 = lam2.squeeze()
+	# Read data from Fits file 
+	lam1, hdr1 = fits.getdata(lam1_, header=True)
+	lam2, hdr2 = fits.getdata(lam2_, header=True)
+	lam1 = lam1.squeeze()
+	lam2 = lam2.squeeze()
 	
 	# Calculate the spectral index
-	alpha = (np.log10(lam1) - np.log10(lam2)) / (np.log10(1.3) - np.log10(3.0))
+	alpha = np.log10(lam1/lam2) / np.log10(hdr1.get('restfrq')/hdr2.get('restfrq'))
 
 	# Derive the opacity index
-	beta = alpha - 2
+	beta_ = alpha - 2
 	
-	plt.imshow(beta, cmap='magma')
-	plt.colorbar().set_label(r'Spectral index ($\beta$)')
+	# Determine which spectral index to work with
+	index = beta_ if beta else alpha
+	
+	# Plot using APLPy if possible, else fallback to Matplotlib
+	if use_aplpy:
+		try:
+			index2file = 'spectral_index.fits'
+			write_fits(index2file, data=index, header=set_hdr_to_iras16293B(hdr1))
+			fig = plot_map(
+				index2file,
+				cblabel=r'$\alpha_{223-100 {\rm GHz}}$',
+				scalebar=30*u.au,
+				cmap=cmap, 
+				vmin=vmin, 
+				vmax=vmax, 
+				verbose=True
+			)
+			fig.show_contour(index2file, colors='black', levels=[1.7,2,3])
+			fig.add_beam(color='black')
+
+		except Exception as e:
+			plt.close()
+			print_(f'Imposible to use aplpy: {e}', verbose=True, bold=False, fail=True)
+			spectral_index(lam1_, lam2_, use_aplpy=False, show=show, savefig=savefig)
+	else:
+		plt.imshow(index, cmap=cmap, vmin=vmin, vmax=vmax)
+		plt.colorbar(pad=0.01).set_label(r'$\alpha_{223-100 {\rm GHz}}$')
+		plt.xticks([])
+		plt.yticks([])
 	
 	if show:
 		plt.show()
@@ -788,12 +827,12 @@ def spectral_index(lam1, lam2, show=True, savefig=None):
 	if isinstance(savefig, str) and len(savefig) > 0:
 		fig.save(savefig)
 
-	return beta
+	return index
 
 
 def Tb(data, outfile='', freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False):
 	"""
-	Convert intensities [Jy/beam] or fluxes [Jy] into brightness temperatures [K].
+	Convert intensities [Jy/beam] into brightness temperatures [K].
 	Frequencies must be in GHz and bmin and bmaj in arcseconds.
 	"""
 	start_time = time.time()
