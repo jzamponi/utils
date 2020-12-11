@@ -367,11 +367,11 @@ def circular_mask(shape, c, r, angle_range):
     return circmask * anglemask
 
 
-def radial_average(data, step=1):
+def radial_profile(data, func=np.nanmean, step=1):
 	"""
-		Computes the radial average of a 2D array by averaging the values 
-		within consecutive concentric circumferences from the border to
-		the center.
+		Computes the radial profile (average by default) of a 2D array 
+		by averaging the values within consecutive concentric circumferences 
+		from the border to the center.
 	"""
 	# Read data from fits file if filename is provided
 	if isinstance(data, str):
@@ -393,7 +393,8 @@ def radial_average(data, step=1):
 	for i,r in enumerate(radii):
 		mask = circular_mask(data.shape, center, r, angle_range=(0,360))
 		data[~mask] = float('nan')
-		averages[i] = np.nanmean(data)
+		#averages[i] = np.nanmean(data)
+		averages[i] = func(data)
 
 	# Reverse the averages to be given from the center to the border
 	return averages[::-1]
@@ -790,7 +791,67 @@ def spectral_index(lam1, lam2, show=True, savefig=None):
 	return beta
 
 
-def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', amax='100um', prefix='', show=True, savefig=None, *args, **kwargs):
+def Tb(data, outfile='', freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False):
+	"""
+	Convert intensities [Jy/beam] or fluxes [Jy] into brightness temperatures [K].
+	Frequencies must be in GHz and bmin and bmaj in arcseconds.
+	"""
+	start_time = time.time()
+
+	# Detects whether data flux comes from a file or an array
+	if isinstance(data, str):
+		data, hdr = fits.getdata(data, header=True)
+	else:
+		hdr = {}
+	
+	# Drop empty axes
+	flux = np.squeeze(data)
+
+	# Get the frequency from the header if not provided
+	if freq == 0:
+		freq = hdr.get('RESTFRQ', default=freq) * u.Hz
+		freq = freq.to(u.GHz)
+	else:
+		freq *= u.GHz
+
+	# Get the beam minor and major axis from the header if not provided
+	if bmin == 0:
+		bmin = hdr.get('BMIN', default=bmin) * u.deg
+		bmin = bmin.to(u.arcsec)
+	else:
+		bmin *= u.arcsec
+
+	if bmaj == 0:
+		bmaj = hdr.get('BMAJ', default=bmaj) * u.deg
+		bmaj = bmaj.to(u.arcsec)
+	else:
+		bmaj *= u.arcsec
+
+	print_(
+		f'Reading BMIN and BMAJ from header: ' +
+		f'{bmin.to(u.arcsec):1.3f}" x ' +
+		f'{bmaj.to(u.arcsec):1.3f}"', \
+		verbose=verbose
+	)
+
+	# Convert the beam gaussian stddev into a FWHM and obtain the beam area
+	fwhm_to_sigma = 1 / np.sqrt(8*np.log(2)) 
+	beam = 2 * np.pi * bmaj * bmin * fwhm_to_sigma**2
+
+	# Convert surface brightness (jy/beam) into brightness temperature
+	to_Tb = u.brightness_temperature(freq)
+	temp = flux * (u.Jy/beam).to(u.K, equivalencies=to_Tb)
+
+	# Write flux to fits file if required
+	write_fits(outfile, temp, hdr, overwrite, verbose)
+
+	# Print the time taken by the function
+	elapsed_time(time.time()-start_time, verbose)
+
+	return temp 
+
+
+def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', amax='100um', prefix='', show=True, savefig=None, bright_temp=True, *args, **kwargs):
 	""" Self-explanatory.
 	"""
 	def angular_offset(d, hdr):
@@ -808,11 +869,13 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 			cut = d[:, cut]	
 
 		# Convert data into brightness temp. to be independent of beam size
-		cut = tlk.brightness_temperature(\
-				cut, \
-				nu=hdr.get('RESTFRQ'), \
-				fwhm=[hdr.get('bmaj')*3600, hdr.get('bmin')*3600] \
-			)
+		if bright_temp:
+			cut = Tb(
+					data=cut, \
+					freq=hdr.get('RESTFRQ')*u.Hz.to(u.GHz), \
+					bmin=hdr.get('bmin')*u.deg.to(u.arcsec), \
+					bmaj=hdr.get('bmaj')*u.deg.to(u.arcsec) \
+				)
 
 		# Offset from the center of the image
 		offset = np.linspace(-FOV/2, FOV/2, naxis1)
@@ -834,11 +897,14 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 		obs = Observation(name='IRAS16293B', lam=lam)
 		
 		# Drop empty axes, flip and rescale
-		#obs.rescale(1e3)
 		obs.drop_axis()
 		obs.fliplr()
+		if not bright_temp:
+			obs.rescale(1e3)
+		if scale_obs is not None and scale_obs > 0:
+			obs.rescale(scale_obs)
 
-		label = f'{obs.name} (x{scale_obs:.1})' if scale_obs else obs.name 
+		label = f'{obs.name} (x{scale_obs:.1f})' if scale_obs else obs.name 
 		plt.plot(*angular_offset(obs.data, obs.header), label=label, color='black', ls='-.', *args, **kwargs)
 
 	# Plot the cuts from the simulated observations for every inclination angle
@@ -849,6 +915,8 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 
 		# Drop empty axes. Flip and rescale
 		data = np.fliplr(np.squeeze(data))
+		if not bright_temp:
+			data *= 1e3
 
 		plt.plot(*angular_offset(data, hdr), label=f'{angle}', *args, **kwargs)
 
@@ -857,7 +925,8 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 	plt.legend(ncol=1, loc='upper left')
 	plt.title('Horizontal cut for different inclination angles.')
 	plt.xlabel('Angular offset (arcseconds)')
-	plt.ylabel(r'$T_{\rm b}$ (K)')
+	ylabel_ = r'$T_{\rm b}$ (K)' if bright_temp else r'mJy/beam'
+	plt.ylabel(ylabel_)
 	plt.xlim(-0.35, 0.35)
 
 	if isinstance(savefig, str) and len(savefig)>0:
