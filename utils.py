@@ -109,10 +109,9 @@ def elapsed_time(runtime, verbose=False):
 
 def ring_bell(soundfile=None):
 	""" Play a sound from system. Useful to notify when another function finishes."""
-	if isinstance(soundfile, str):
-		os.system(f'paplay {soundfile}')
-	else:
-		os.system('paplay /usr/share/sounds/freedesktop/stereo/service-login.oga >/dev/null 2>&1')
+	if not isinstance(soundfile, str):
+		soundfile = '/usr/share/sounds/freedesktop/stereo/service-login.oga'
+	os.system(f'paplay {soundfile} >/dev/null 2>&1')
 
 
 def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, for_casa=False, verbose=False):
@@ -171,17 +170,26 @@ def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, fo
 	if spec_axis:
 		# Convert the observing wavelength from the header into frequency
 		wls = {
-			'0.0013': np.float64(230609583076.92307),
-			'0.003': np.float64(99988140037.24495),
-			'0.007': np.float64(42827493999.99999)
+			'0.0013': {
+					'freq': np.float64(230609583076.92307), 
+					'freq_res': np.float64(3.515082631882E+10)
+			},
+			'0.003': {
+					'freq': np.float64(99988140037.24495),
+					'freq_res': np.float64(2.000144770049E+09)
+			},
+			'0.007': {
+					'freq': np.float64(42827493999.99999),
+					'freq_res': np.float64(3.515082631882E+10)
+			}
 		}
+			
+		wl_from_hdr = str(hdr.get('HIERARCH WAVELENGTH1'))
 		hdr['NAXIS3'] = 1
 		hdr['CTYPE3'] = 'FREQ'
-		hdr['CRVAL3'] = wls[str(hdr.get('HIERARCH WAVELENGTH1', '0.0013'))]
+		hdr['CRVAL3'] = wls[wl_from_hdr]['freq']
 		hdr['CRPIX3'] = np.float64(0.0)
-		# TO DO: check this!
-		#hdr['CDELT3'] = np.float64(2.000144770049E+09)
-		hdr['CDELT3'] = np.float64(3.515082631882E+10)
+		hdr['CDELT3'] = wls[wl_from_hdr]['freq_res']
 		hdr['CUNIT3'] = 'Hz'
 		hdr['RESTFRQ'] = hdr.get('CRVAL3')
 		hdr['SPECSYS'] = 'LSRK'
@@ -351,37 +359,41 @@ def fill_gap(filename, outfile=None, x1=143, x2=158, y1=143, y2=157, threshold=1
 		fits.writeto(outfile, data=full, header=hdr, overwrite=True)
 
 
-def circular_mask(shape, c, r, angle_range):
-    """
-    Return a boolean mask for a circular sector. The start/stop angles in  
-    `angle_range` should be given in clockwise order.
-    """
+def circular_mask(shape, c, r, angle_range=(0,360), ring=False):
+	"""
+	Return a boolean mask for a circular sector. The start/stop angles in  
+	`angle_range` should be given in clockwise order.
+	"""
 
-    x,y = np.ogrid[:shape[0],:shape[1]]
-    cx, cy = c
-    a_i, a_f = np.deg2rad(angle_range)
+	x,y = np.ogrid[:shape[0],:shape[1]]
+	cx, cy = c
+	a_i, a_f = np.deg2rad(angle_range)
 
-    # Ensure stop angle > start angle
-    if a_f < a_i:
-            a_f += 2*np.pi
+	# Ensure stop angle > start angle
+	if a_f < a_i:
+			a_f += 2*np.pi
 
-    # Convert cartesian --> polar coordinates
-    r2 = (x-cx)**2 + (y-cy)**2
-    theta = np.arctan2(x-cx,y-cy) - a_i
+	# Convert cartesian --> polar coordinates
+	r2 = (x-cx)**2 + (y-cy)**2
+	theta = np.arctan2(x-cx,y-cy) - a_i
 
-    # Wrap angles between 0 and 2*pi
-    theta %= (2*np.pi)
+	# Wrap angles between 0 and 2*pi
+	theta %= (2*np.pi)
 
-    # Circular mask
-    circmask = r2 <= r*r
+	# Circular mask
+	circular_mask = r2 <= r*r
 
-    # Angular mask
-    anglemask = theta <= (a_f-a_i)
+	# Angular mask
+	angular_mask = theta <= (a_f-a_i)
 
-    return circmask * anglemask
+	# Subtract an inner circle to get a ring
+	ring_mask = r2 < 0.9*r*r
+	ring_mask = ring_mask ^ circular_mask
+
+	return (ring_mask * angular_mask) if ring else (circular_mask * angular_mask)
 
 
-def radial_profile(data, func=np.nanmean, step=1):
+def radial_profile(data, func=np.nanmean, step=1, dr=None, return_radii=False, show=False, savefig=None, *args, **kwargs):
 	"""
 		Computes the radial profile (average by default) of a 2D array 
 		by averaging the values within consecutive concentric circumferences 
@@ -401,17 +413,37 @@ def radial_profile(data, func=np.nanmean, step=1):
 
 	# Masks are created from the border to the center because otherwise
 	# all masks other than r=0 would already be NaN.
-	averages = np.zeros(np.arange(map_radius_x).shape)
 	radii = np.arange(0, map_radius_x, step)[::-1]
+	averages = np.zeros(radii.shape)
 
-	for i,r in enumerate(radii):
-		mask = circular_mask(data.shape, center, r, angle_range=(0,360))
-		data[~mask] = float('nan')
-		#averages[i] = np.nanmean(data)
-		averages[i] = func(data)
+	from tqdm import tqdm
+	for i,r in tqdm(enumerate(radii)):
+		# Avoid the original data go to NaN
+		data_cpy = np.copy(data)
+		mask = circular_mask(data_cpy.shape, center, r, ring=True)
+		data_cpy[~mask] = float('nan')
+		averages[i] = func(data_cpy)
+		del data_cpy
 
 	# Reverse the averages to be given from the center to the border
-	return averages[::-1]
+	averages = averages[::-1]
+
+	# Generate the radial axis for plotting if required
+	if return_radii or show or savefig:
+		radii = radii[::-1] * dr.value
+	
+	# Plot the radial profile if required
+	if show or savefig is not None:
+		plt.plot(radii, averages, *args, **kwargs)
+		plt.xlabel(f'Radius ({dr.unit})')
+		plt.xlim(0, radii.max())
+		plt.legend()
+		if isinstance(savefig, str) and len(savefig) > 0:
+			plt.save(savefig)
+		if show:
+			plt.show()
+
+	return (averages, radii) if return_radii else averages
 
 
 def stats(filename, slice=None, verbose=False):
@@ -505,14 +537,14 @@ def edit_keyword(filename, key, value, verbose=True):
 	write_fits(filename, data=data, header=hdr, overwrite=True)
 
 
-def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, verbose=True, *args, **kwargs):
+def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, cmap='magma', verbose=True, *args, **kwargs):
 	"""
 		Plot a fits file using the APLPy library.
 	"""
 	from aplpy import FITSFigure	
 	
 	fig = FITSFigure(filename, rescale=rescale)
-	fig.show_colorscale(*args, **kwargs)
+	fig.show_colorscale(cmap=cmap, *args, **kwargs)
 
 	# Auto set the colorbar label if not provided
 	if cblabel == '' and rescale == 1:
@@ -531,7 +563,7 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, ve
 	
 	# Colorbar
 	fig.add_colorbar()
-	fig.colorbar.set_location('right')
+	fig.colorbar.set_location('top')
 	fig.colorbar.set_axis_label_text(cblabel)
 	fig.colorbar.set_axis_label_font(size=15, weight=15)
 	fig.colorbar.set_font(size=15, weight=15)
@@ -546,14 +578,15 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, ve
 
 	# Scalebar
 	# TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
-	D = 141 * u.pc
-	scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
-	fig.add_scalebar(scalebar_ * u.arcsec)
-	fig.scalebar.set_color('grey')
-	fig.scalebar.set_corner('bottom right')
-	fig.scalebar.set_font(size=23)
-	fig.scalebar.set_linewidth(3)
-	fig.scalebar.set_label(f'{int(scalebar.value)} {scalebar.unit}')
+	if not filename.endswith('_alma.fits'):
+		D = 141 * u.pc
+		scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
+		fig.add_scalebar(scalebar_ * u.arcsec)
+		fig.scalebar.set_color('grey')
+		fig.scalebar.set_corner('bottom right')
+		fig.scalebar.set_font(size=23)
+		fig.scalebar.set_linewidth(3)
+		fig.scalebar.set_label(f'{int(scalebar.value)} {scalebar.unit}')
 
 	if isinstance(savefig, str) and len(savefig) > 0:
 		fig.save(savefig)
@@ -887,7 +920,7 @@ def Tb(data, outfile='', freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
 	# Print the time taken by the function
 	elapsed_time(time.time()-start_time, verbose)
 
-	return temp 
+	return temp.value 
 
 
 def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', amax='100um', prefix='', show=True, savefig=None, bright_temp=True, *args, **kwargs):
