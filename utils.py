@@ -111,8 +111,51 @@ def ring_bell(soundfile=None):
 	""" Play a sound from system. Useful to notify when another function finishes."""
 	if not isinstance(soundfile, str):
 		soundfile = '/usr/share/sounds/freedesktop/stereo/service-login.oga'
+	
 	os.system(f'paplay {soundfile} >/dev/null 2>&1')
 
+
+def checkout(fig, show, savefig, path=''):
+	""" Final step in every plotting routine:
+		- Check if the figure should be showed.
+		- Check if the figure should be saved.
+		- Return the figure, for further editing. 
+	"""
+	# Turn path into a Path object for flexibility
+	path = Path(path)
+	
+	# Save the figure if required
+	if savefig != '':
+		# Check if savefig is a global path
+		savefig = f'{path}/{savefig}' if '/' not in savefig else f'{savefig}'
+		plt.savefig(savefig)
+
+	# Show the figure if required
+	if show:
+		plt.show()
+
+	return fig
+
+
+def parse(s, delimiter='%', d=None):
+	"""
+		Parse a string containing a given delimiter and return a dictionary
+		containing the key:value pairs.
+	"""
+	# Set the delimiter character
+	delimiter = d if isinstance(d, str) else d
+	
+	# Store all existing global and local variables
+	g = globals()
+	l = locals()
+
+	string = s.replace(d, '{')
+	string = s.replace('{_', '}_') 
+
+	# TO DO: This function is incomplete.
+	return string
+
+		
 
 def set_hdr_to_iras16293B(hdr, wcs='deg', spec_axis=False, stokes_axis=False, for_casa=False, verbose=False):
 	"""
@@ -416,6 +459,7 @@ def radial_profile(data, func=np.nanmean, step=1, dr=None, return_radii=False, s
 	radii = np.arange(0, map_radius_x, step)[::-1]
 	averages = np.zeros(radii.shape)
 
+	# TO DO: Parallelize this loop
 	from tqdm import tqdm
 	for i,r in tqdm(enumerate(radii)):
 		# Avoid the original data go to NaN
@@ -443,7 +487,7 @@ def radial_profile(data, func=np.nanmean, step=1, dr=None, return_radii=False, s
 		if show:
 			plt.show()
 
-	return (averages, radii) if return_radii else averages
+	return (radii, averages) if return_radii else averages
 
 
 def stats(filename, slice=None, verbose=False):
@@ -962,6 +1006,9 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 
 	# Set the path prefix as a Path object, if provided
 	prefix = Path(prefix)
+
+	# Create a figure object
+	fig = plt.figure()
 	
 	# Plot the cut from the real observation if required
 	if add_obs:
@@ -977,11 +1024,13 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 			obs.rescale(scale_obs)
 
 		label = f'{obs.name} (x{scale_obs:.1f})' if scale_obs else obs.name 
-		plt.plot(*angular_offset(obs.data, obs.header), label=label, color='black', ls='-.', *args, **kwargs)
+		obs.offset, obs.cut = angular_offset(obs.data, obs.header)
+		plt.plot(obs.offset, obs.cut, label=label, color='black', ls='-.', *args, **kwargs)
 
 	# Plot the cuts from the simulated observations for every inclination angle
 	for angle in [f'{i}deg' for i in angles]:
 		# Read data
+		#filename = prefix/f'{angle}/data/{lam}_{angle}_a{amax}_alma_smoothed_obs.fits'
 		filename = prefix/f'{angle}/data/{lam}_{angle}_a{amax}_alma.fits'
 		data, hdr = fits.getdata(filename, header=True)
 
@@ -990,10 +1039,15 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 		if not bright_temp:
 			data *= 1e3
 
-		plt.plot(*angular_offset(data, hdr), label=f'{angle}', *args, **kwargs)
+		offset, cut = angular_offset(data, hdr)
+		plt.plot(offset, cut, label=f'{angle}', *args, **kwargs)
 
 	# Customize the plot
-	plt.axvline(0, lw=1, ls='--', alpha=0.5, color='grey')
+	hole_size = 0.014 # arcsec = 2 AU
+	hole_size = (2 *u.au.to(u.pc) / 141)*u.rad.to(u.arcsec)
+	plt.axvline(-hole_size, lw=1, ls='-', alpha=0.5, color='grey')
+	plt.axvline(hole_size, lw=1, ls='-', alpha=0.5, color='grey')
+	plt.annotate('0.1" = 14AU', (0.75, 0.85), xycoords='axes fraction', fontsize=13)
 	plt.legend(ncol=1, loc='upper left')
 	plt.title('Horizontal cut for different inclination angles.')
 	plt.xlabel('Angular offset (arcseconds)')
@@ -1006,6 +1060,8 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 
 	if show:
 		plt.show()
+	
+	return fig
 
 
 def get_polaris_temp(binfile='grid_temp.dat'):
