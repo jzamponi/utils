@@ -13,6 +13,7 @@ from astropy import units as u
 from astropy import constants as c
 
 home = Path.home()
+pwd = Path(os.getcwd())
 
 class color:
     fail = '\033[91m'
@@ -581,11 +582,24 @@ def edit_keyword(filename, key, value, verbose=True):
 	write_fits(filename, data=data, header=hdr, overwrite=True)
 
 
-def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, cmap='magma', verbose=True, *args, **kwargs):
+def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, cmap='magma', verbose=True, bright_temp=True, *args, **kwargs):
 	"""
 		Plot a fits file using the APLPy library.
 	"""
 	from aplpy import FITSFigure	
+
+	# Read from FITS file if input is a filename
+	if isinstance(filename, str):
+		data, hdr = fits.getdata(filename, header=True)
+
+	# Convert Jy/beam into Kelvin if required
+	if bright_temp:
+		rescale = Tb(
+				data=rescale, \
+				freq=hdr.get('RESTFRQ')*u.Hz.to(u.GHz), \
+				bmin=hdr.get('bmin')*u.deg.to(u.arcsec), \
+				bmaj=hdr.get('bmaj')*u.deg.to(u.arcsec) \
+			)
 	
 	fig = FITSFigure(filename, rescale=rescale)
 	fig.show_colorscale(cmap=cmap, *args, **kwargs)
@@ -599,12 +613,14 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, cm
 			print_(e)
 			cblabel = ''
 		
+	elif cblabel == '' and bright_temp:
+		cblabel = r'$T_{\rm b}$ (K)'
 	elif cblabel == '' and rescale == 1e3:
 		cblabel = 'mJy/beam'
 
 	elif cblabel == '' and rescale == 1e6:
 		cblabel = r'$\mu$Jy/beam'
-	
+
 	# Colorbar
 	fig.add_colorbar()
 	fig.colorbar.set_location('top')
@@ -622,7 +638,7 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, cm
 
 	# Scalebar
 	# TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
-	if not filename.endswith('_alma.fits'):
+	try:
 		D = 141 * u.pc
 		scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
 		fig.add_scalebar(scalebar_ * u.arcsec)
@@ -631,6 +647,8 @@ def plot_map(filename, savefig=None, rescale=1, cblabel='', scalebar=50*u.au, cm
 		fig.scalebar.set_font(size=23)
 		fig.scalebar.set_linewidth(3)
 		fig.scalebar.set_label(f'{int(scalebar.value)} {scalebar.unit}')
+	except Exception:
+		pass
 
 	if isinstance(savefig, str) and len(savefig) > 0:
 		fig.save(savefig)
@@ -1028,9 +1046,8 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 		plt.plot(obs.offset, obs.cut, label=label, color='black', ls='-.', *args, **kwargs)
 
 	# Plot the cuts from the simulated observations for every inclination angle
-	for angle in [f'{i}deg' for i in angles]:
+	for angle, color in zip([f'{i}deg' for i in angles], ['tab:blue','tab:orange']):
 		# Read data
-		#filename = prefix/f'{angle}/data/{lam}_{angle}_a{amax}_alma_smoothed_obs.fits'
 		filename = prefix/f'{angle}/data/{lam}_{angle}_a{amax}_alma.fits'
 		data, hdr = fits.getdata(filename, header=True)
 
@@ -1040,13 +1057,28 @@ def horizontal_cuts(angles, add_obs=False, scale_obs=None, axis=0, lam='3mm', am
 			data *= 1e3
 
 		offset, cut = angular_offset(data, hdr)
-		plt.plot(offset, cut, label=f'{angle}', *args, **kwargs)
+		plt.plot(offset, cut, label=f'{angle} '+r'($T_{\rm dust}$ from $T_{\rm gas}$ and RT)', c=color, *args, **kwargs)
+
+#		# <PATCH>
+		# Temporal lines to add the curves with Temp. from RT+EOS
+		prefix_ = Path(str(pwd).replace('temp_comb','temp_eos'))
+		filename = prefix_/f'{angle}/data/{lam}_{angle}_a{amax}_alma.fits'
+		data, hdr = fits.getdata(filename, header=True)
+		# Drop empty axes. Flip and rescale
+		data = np.fliplr(np.squeeze(data))
+		if not bright_temp:
+			data *= 1e3
+		offset, cut = angular_offset(data, hdr)
+		plt.plot(offset, cut, label=f'{angle} '+r'($T_{\rm dust}$ from $T_{\rm gas}$ only)', c=color, ls='--')
+#		# </PATCH>
 
 	# Customize the plot
 	hole_size = 0.014 # arcsec = 2 AU
 	hole_size = (2 *u.au.to(u.pc) / 141)*u.rad.to(u.arcsec)
-	plt.axvline(-hole_size, lw=1, ls='-', alpha=0.5, color='grey')
-	plt.axvline(hole_size, lw=1, ls='-', alpha=0.5, color='grey')
+	#plt.axvline(-hole_size, lw=1, ls='-', alpha=0.5, color='grey')
+	#plt.axvline(hole_size, lw=1, ls='-', alpha=0.5, color='grey')
+	#plt.text(0.003, 0, 'Central hole', rotation=90, horizontalalignment='center')
+	plt.axvline(0, ls='--', lw=1, c='grey')
 	plt.annotate('0.1" = 14AU', (0.75, 0.85), xycoords='axes fraction', fontsize=13)
 	plt.legend(ncol=1, loc='upper left')
 	plt.title('Horizontal cut for different inclination angles.')
