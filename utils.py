@@ -437,12 +437,25 @@ def circular_mask(shape, c, r, angle_range=(0,360), ring=False):
 	return (ring_mask * angular_mask) if ring else (circular_mask * angular_mask)
 
 
-def radial_profile(data, func=np.nanmean, step=1, dr=None, return_radii=False, show=False, savefig=None, *args, **kwargs):
+def radial_profile(data, func=np.nanmean, step=1, dr=None, return_radii=False, show=False, savefig=None, nthreads=1, *args, **kwargs):
 	"""
 		Computes the radial profile (average by default) of a 2D array 
 		by averaging the values within consecutive concentric circumferences 
 		from the border to the center.
 	"""
+	from concurrent.futures import ThreadPoolExecutor
+
+	def parallel_masking(i, r):
+		""" Function created to parallelize the for loop 
+			by means of a parallell map(func, args).
+		"""
+		# Copy data to avoid propagating NaNs in the original array
+		d_copy = np.copy(data)
+		mask = circular_mask(d_copy.shape, center, r, ring=True)
+		d_copy[~mask] = float('nan')
+		averages[i] = func(d_copy)
+		del d_copy
+
 	# Read data from fits file if filename is provided
 	if isinstance(data, str):
 		data, hdr = fits.getdata(data, header=True)
@@ -460,15 +473,21 @@ def radial_profile(data, func=np.nanmean, step=1, dr=None, return_radii=False, s
 	radii = np.arange(0, map_radius_x, step)[::-1]
 	averages = np.zeros(radii.shape)
 
-	# TO DO: Parallelize this loop
-	from tqdm import tqdm
-	for i,r in tqdm(enumerate(radii)):
-		# Avoid the original data go to NaN
-		data_cpy = np.copy(data)
-		mask = circular_mask(data_cpy.shape, center, r, ring=True)
-		data_cpy[~mask] = float('nan')
-		averages[i] = func(data_cpy)
-		del data_cpy
+#	from tqdm import tqdm
+#	for i,r in tqdm(enumerate(radii)):
+#		# Avoid the original data go to NaN
+#		data_cpy = np.copy(data)
+#		mask = circular_mask(data_cpy.shape, center, r, ring=True)
+#		data_cpy[~mask] = float('nan')
+#		averages[i] = func(data_cpy)
+#		del data_cpy
+
+	# Serial implementation of the for loop using map
+#	list(map(parallel_masking, range(radii.size), radii))
+
+	# Parallel implementation of the for loop using map
+	with ThreadPoolExecutor(max_workers = nthreads) as pool:
+		pool.map(parallel_masking, range(radii.size), radii)
 
 	# Reverse the averages to be given from the center to the border
 	averages = averages[::-1]
@@ -479,10 +498,9 @@ def radial_profile(data, func=np.nanmean, step=1, dr=None, return_radii=False, s
 	
 	# Plot the radial profile if required
 	if show or savefig is not None:
-		plt.plot(radii, averages, *args, **kwargs)
+		plt.semilogx(radii, averages, *args, **kwargs)
 		plt.xlabel(f'Radius ({dr.unit})')
-		plt.xlim(0, radii.max())
-		plt.legend()
+		#plt.xlim(radii.min(), radii.max())
 		if isinstance(savefig, str) and len(savefig) > 0:
 			plt.save(savefig)
 		if show:
