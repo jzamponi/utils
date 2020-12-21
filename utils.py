@@ -107,13 +107,31 @@ def write_fits(filename, data, header, overwrite=True, verbose=False):
         print_(f"Written file {filename}", verbose=verbose, fname=caller)
 
 
-def elapsed_time(runtime, verbose=False):
-    # Get the name of the calling function by tracing one level up in the stack
-    caller = sys._getframe(1).f_code.co_name
+def elapsed_time(caller):
+	""" Decorator designed to print the time taken by a functon. """
+	# TO DO: Find a way to forward verbose from the caller even when
+	# is not provided explicitly, so that it takes the default value 
+	# from the caller.
 
-    run_time = time.strftime("%H:%M:%S", time.gmtime(runtime))
+	def wrapper(*args, **kwargs):
+		# Measure time before it runs
+		start = time.time()
 
-    print_(f"Elapsed time: {run_time}", verbose=verbose, fname=caller)
+		# Execute the caller function
+		f = caller(*args, **kwargs)
+
+		# Measure time difference after it finishes
+		run_time = time.time() - start
+
+		# Print the elapsed time nicely formatted, if verbose is enabled
+		print_(
+			f'Elapsed time: {time.strftime("%H:%M:%S", time.gmtime(run_time))}', 
+			#verbose = kwargs.get('verbose'), 
+			verbose = True, 
+			fname = caller.__name__
+		)
+		return f
+	return wrapper
 
 
 def ring_bell(soundfile=None):
@@ -261,6 +279,7 @@ def set_hdr_to_iras16293B(
     return hdr
 
 
+@elapsed_time
 def create_cube(
     filename="polaris_detector_nr0001.fits.gz",
     outfile="",
@@ -278,7 +297,6 @@ def create_cube(
     """
     from glob import glob
 
-    start_time = time.time()
     pwd = os.getcwd()
 
     # Set a global verbose if verbose is enabled
@@ -344,9 +362,6 @@ def create_cube(
 
     # Write data to fits file
     write_fits(outfile, I, hdr, overwrite, verbose)
-
-    # Print the time taken by the function
-    elapsed_time(time.time() - start_time, verbose)
 
     return data
 
@@ -474,6 +489,7 @@ def circular_mask(shape, c, r, angle_range=(0, 360), ring=False):
     return (ring_mask * angular_mask) if ring else (circular_mask * angular_mask)
 
 
+@elapsed_time
 def radial_profile(
     data,
     func=np.nanmean,
@@ -483,6 +499,7 @@ def radial_profile(
     show=False,
     savefig=None,
     nthreads=1,
+	verbose=True,
     *args,
     **kwargs,
 ):
@@ -492,8 +509,6 @@ def radial_profile(
     from the border to the center.
     """
     from concurrent.futures import ThreadPoolExecutor
-
-    start = time.time()
 
     def parallel_masking(i, r):
         """Function created to parallelize the for loop
@@ -523,22 +538,9 @@ def radial_profile(
     radii = np.arange(0, map_radius_x, step)[::-1]
     averages = np.zeros(radii.shape)
 
-    if nthreads == 1:
-        # Serial implementation
-        from tqdm import tqdm
-
-        for i, r in tqdm(enumerate(radii)):
-            # Avoid the original data go to NaN
-            data_cpy = np.copy(data)
-            mask = circular_mask(data_cpy.shape, center, r, ring=True)
-            data_cpy[~mask] = float("nan")
-            averages[i] = func(data_cpy)
-            del data_cpy
-
-    else:
-        # Parallel implementation
-        with ThreadPoolExecutor(max_workers=nthreads) as pool:
-            pool.map(parallel_masking, range(radii.size), radii)
+    # Parallel iteration over radii
+    with ThreadPoolExecutor(max_workers = nthreads) as pool:
+        pool.map(parallel_masking, range(radii.size), radii)
 
     # Reverse the averages to be given from the center to the border
     averages = averages[::-1]
@@ -556,9 +558,6 @@ def radial_profile(
             plt.save(savefig)
         if show:
             plt.show()
-
-    # Print the time taken by the function
-    elapsed_time(time.time() - start, verbose=True)
 
     return (radii, averages) if return_radii else averages
 
@@ -739,6 +738,7 @@ def plot_map(
     return fig
 
 
+@elapsed_time
 def polarization_map(
     filename="polaris_detector_nr0001.fits.gz",
     render="intensity",
@@ -765,8 +765,6 @@ def polarization_map(
     and create maps of Pfrac and Pangle using APLpy.
     """
     from aplpy import FITSFigure
-
-    start = time.time()
 
     # Enable verbosity
     global VERBOSE
@@ -969,8 +967,6 @@ def polarization_map(
     if isinstance(savefig, str) and len(savefig) > 0:
         fig.save(savefig)
 
-    elapsed_time(time.time() - start, verbose)
-
     return fig
 
 
@@ -1049,7 +1045,6 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
     Convert intensities [Jy/beam] into brightness temperatures [K].
     Frequencies must be in GHz and bmin and bmaj in arcseconds.
     """
-    start_time = time.time()
 
     # Detects whether data flux comes from a file or an array
     if isinstance(data, str):
@@ -1098,12 +1093,10 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
     # Write flux to fits file if required
     write_fits(outfile, temp, hdr, overwrite, verbose)
 
-    # Print the time taken by the function
-    elapsed_time(time.time() - start_time, verbose)
-
     return temp.value
 
 
+@elapsed_time
 def horizontal_cuts(
     angles,
     add_obs=False,
@@ -1201,7 +1194,7 @@ def horizontal_cuts(
 
         # 		# <PATCH>
         # Temporal lines to add the curves with Temp. from RT+EOS
-        prefix_ = Path(str(pwd).replace("temp_comb", "temp_eos"))
+        prefix_ = Path(pwd.as_posix.replace("temp_comb", "temp_eos"))
         filename = prefix_ / f"{angle}/data/{lam}_{angle}_a{amax}_alma.fits"
         data, hdr = fits.getdata(filename, header=True)
         # Drop empty axes. Flip and rescale
