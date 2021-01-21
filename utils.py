@@ -4,7 +4,7 @@
 import os
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PosixPath
 
 import numpy as np
 
@@ -48,7 +48,12 @@ class Observation:
     def flipud(self, flip=True):
         self.data = np.flipud(self.data) if flip else self.data
 
+
+class Header:
+    """ Handles header transformations. """
     # TO DO: bring the function  set_hdr_to_iras16293() into this object
+    def __init__(self, hdr):
+        self.hdr = hdr
 
 
 class Bfield:
@@ -96,6 +101,7 @@ def print_(string, verbose=None, fname=None, bold=False, fail=False, *args, **kw
 
 
 def write_fits(filename, data, header, overwrite=True, verbose=False):
+    # Get the name of the calling function by tracing one level up in the stack
     caller = sys._getframe(1).f_code.co_name
 
     if filename != "":
@@ -136,13 +142,13 @@ def elapsed_time(caller):
 
 def ring_bell(soundfile=None):
     """ Play a sound from system. Useful to notify when another function finishes."""
-    if not isinstance(soundfile, str):
+    if not isinstance(soundfile, (str,PosixPath)):
         soundfile = "/usr/share/sounds/freedesktop/stereo/service-login.oga"
 
     os.system(f"paplay {soundfile} >/dev/null 2>&1")
 
 
-def checkout(fig, show, savefig, path=""):
+def plot_checkout(fig, show, savefig, path=""):
     """Final step in every plotting routine:
     - Check if the figure should be showed.
     - Check if the figure should be saved.
@@ -154,8 +160,7 @@ def checkout(fig, show, savefig, path=""):
     # Save the figure if required
     if savefig != "":
         # Check if savefig is a global path
-        savefig = f"{path}/{savefig}" if "/" not in savefig else f"{savefig}"
-        plt.savefig(savefig)
+        plt.savefig(f"{savefig}" if '/' in savefig else f"{path}/{savefig}") 
 
     # Show the figure if required
     if show:
@@ -170,7 +175,7 @@ def parse(s, delimiter="%", d=None):
     containing the key:value pairs.
     """
     # Set the delimiter character
-    delimiter = d if isinstance(d, str) else d
+    delimiter = d if isinstance(d, (str,PosixPath)) else d
 
     # Store all existing global and local variables
     g = globals()
@@ -219,7 +224,7 @@ def set_hdr_to_iras16293B(
 
     # Remove extra keywords PC3_* & PC*_3 added by CASA tasks and associated to a 3rd dim.
     if not any([spec_axis, stokes_axis, for_casa]):
-        [hdr.remove(k, True) for k in ["PC1_3", "PC2_3", "PC3_3", "PC3_1", "PC3_2"]]
+        [hdr.remove(k, True) for k in ["PC1_3", "PC2_3", "PC3_3", "PC3_1", "PC3_2", "PC4_2", "PC4_3", "PC2_4", "PC3_4", "PC4_4", "PC4_1", "PC1_4"]]
 
     # Adjust the header to match obs. from IRAS16293-2422B
     hdr["CUNIT1"] = "deg"
@@ -272,7 +277,7 @@ def set_hdr_to_iras16293B(
 
     # Add missing keywords (src: http://www.alma.inaf.it/images/ArchiveKeyworkds.pdf)
     hdr["BTYPE"] = "Intensity"
-    hdr["BUNIT"] = "Jy/pixel"
+    hdr["BUNIT"] = "Jy/beam"
     hdr["BZERO"] = 0.0
     hdr["RADESYS"] = "ICRS"
 
@@ -522,7 +527,7 @@ def radial_profile(
         del d_copy
 
     # Read data from fits file if filename is provided
-    if isinstance(data, str):
+    if isinstance(data, (str,PosixPath)):
         data, hdr = fits.getdata(data, header=True)
 
     # Drop empty axes
@@ -554,7 +559,7 @@ def radial_profile(
         plt.semilogx(radii, averages, *args, **kwargs)
         plt.xlabel(f"Radius ({dr.unit})")
         # plt.xlim(radii.min(), radii.max())
-        if isinstance(savefig, str) and len(savefig) > 0:
+        if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
             plt.save(savefig)
         if show:
             plt.show()
@@ -568,7 +573,7 @@ def stats(filename, slice=None, verbose=False):
     """
 
     # Read data
-    if isinstance(filename, str):
+    if isinstance(filename, (str,PosixPath)):
         data, hdr = fits.getdata(filename, header=True)
 
         if isinstance(slice, int):
@@ -600,7 +605,7 @@ def maxpos(data):
     Return a tuple with the coordinates of a N-dimensional array.
     """
     # Read data from fits file if data is string
-    if isinstance(data, str):
+    if isinstance(data, (str,PosixPath)):
         data = fits.getdata(data)
 
     # Remove empty axes
@@ -614,7 +619,7 @@ def minpos(data):
     Return a tuple with the coordinates of a N-dimensional array.
     """
     # Read data from fits file if data is string
-    if isinstance(data, str):
+    if isinstance(data, (str,PosixPath)):
         data = fits.getdata(data)
 
     # Remove empty axes
@@ -655,13 +660,15 @@ def edit_keyword(filename, key, value, verbose=True):
 
 def plot_map(
     filename,
+    header=None,
     savefig=None,
     rescale=1,
-    cblabel="",
+    cblabel=None,
     scalebar=50 * u.au,
     cmap="magma",
     verbose=True,
     bright_temp=True,
+    figsize=(10,9),
     *args,
     **kwargs,
 ):
@@ -671,8 +678,23 @@ def plot_map(
     from aplpy import FITSFigure
 
     # Read from FITS file if input is a filename
-    if isinstance(filename, str):
+    if isinstance(filename, (str,PosixPath)):
         data, hdr = fits.getdata(filename, header=True)
+
+    elif isinstance(filename, (np.ndarray, list)) and header is not None:
+        data = filename
+        hdr = header
+
+    # Remove non-celestial WCS
+    if hdr.get("NAXIS") > 2:
+        tempfile = Path(filename).parent/'.temp_file.fits'
+        write_fits(
+            tempfile, 
+            data=data.squeeze(), 
+            header=set_hdr_to_iras16293B(hdr), 
+            overwrite=True
+        )
+        filename = tempfile
 
     # Convert Jy/beam into Kelvin if required
     if bright_temp:
@@ -683,11 +705,11 @@ def plot_map(
             bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
         )
 
-    fig = FITSFigure(filename, rescale=rescale)
+    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize)
     fig.show_colorscale(cmap=cmap, *args, **kwargs)
 
     # Auto set the colorbar label if not provided
-    if cblabel == "" and rescale == 1:
+    if cblabel is None:
         try:
             hdr = fits.getheader(filename)
             cblabel = hdr.get("BTYPE")
@@ -729,10 +751,10 @@ def plot_map(
         fig.scalebar.set_font(size=23)
         fig.scalebar.set_linewidth(3)
         fig.scalebar.set_label(f"{int(scalebar.value)} {scalebar.unit}")
-    except Exception:
-        pass
+    except Exception as e:
+        print_(f'Not able to add scale bar. Error: {e}', verbose=True, fail=True)
 
-    if isinstance(savefig, str) and len(savefig) > 0:
+    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
         fig.save(savefig)
 
     return fig
@@ -802,7 +824,7 @@ def polarization_map(
 										File: {thermal_file+"/"+filename}'
                 )
 
-    elif isinstance(add_thermal, str):
+    elif isinstance(add_thermal, (str,PosixPath)):
         try:
             I_th = fits.getdata(add_thermal)
         except OSError:
@@ -848,7 +870,7 @@ def polarization_map(
 										File: {selfscat_file+"/"+filename}'
                 )
 
-    elif isinstance(add_thermal, str):
+    elif isinstance(add_thermal, (str,PosixPath)):
         try:
             I_ss = fits.getdata(add_selfscat)
         except OSError:
@@ -964,7 +986,7 @@ def polarization_map(
     if show:
         plt.show()
 
-    if isinstance(savefig, str) and len(savefig) > 0:
+    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
         fig.save(savefig)
 
     return fig
@@ -985,6 +1007,7 @@ def spectral_index(
     vmax=3.5,
     show=True,
     savefig=None,
+    return_fig=True
 ):
     """Calculate the spectral index between observations at two wavelengths.
     lam1 must be shorter than lam2.
@@ -1009,13 +1032,15 @@ def spectral_index(
         try:
             index2file = "spectral_index.fits"
             write_fits(index2file, data=index, header=set_hdr_to_iras16293B(hdr1))
+            cblabel_freq = r"$_{ 223-100 {\rm GHz}}$"
             fig = plot_map(
                 index2file,
-                cblabel=r"$\alpha_{223-100 {\rm GHz}}$",
+                cblabel=r"$\beta$"+cblabel_freq if beta else r"$\alpha$"+cblabel_freq,
                 scalebar=30 * u.au,
                 cmap=cmap,
                 vmin=vmin,
                 vmax=vmax,
+                bright_temp=False, 
                 verbose=True,
             )
             fig.show_contour(index2file, colors="black", levels=[1.7, 2, 3])
@@ -1034,10 +1059,10 @@ def spectral_index(
     if show:
         plt.show()
 
-    if isinstance(savefig, str) and len(savefig) > 0:
+    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
         fig.save(savefig)
 
-    return index
+    return fig if return_fig else index
 
 
 def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False):
@@ -1047,7 +1072,7 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
     """
 
     # Detects whether data flux comes from a file or an array
-    if isinstance(data, str):
+    if isinstance(data, (str,PosixPath)):
         data, hdr = fits.getdata(data, header=True)
     else:
         hdr = {}
@@ -1226,7 +1251,7 @@ def horizontal_cuts(
     plt.ylabel(ylabel_)
     plt.xlim(-0.35, 0.35)
 
-    if isinstance(savefig, str) and len(savefig) > 0:
+    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
         plt.savefig(savefig)
 
     if show:
