@@ -158,6 +158,7 @@ def plot_checkout(fig, show, savefig, path=""):
     path = Path(path)
 
     # Save the figure if required
+    savefig = "" if savefig is None else savefig
     if savefig != "":
         # Check if savefig is a global path
         plt.savefig(f"{savefig}" if '/' in savefig else f"{path}/{savefig}") 
@@ -709,7 +710,15 @@ def plot_map(
     fig.show_colorscale(cmap=cmap, *args, **kwargs)
 
     # Auto set the colorbar label if not provided
-    if cblabel is None:
+    if cblabel is None and bright_temp:
+        cblabel = r"$T_{\rm b}$ (K)"
+    elif cblabel is None and rescale == 1e3:
+        cblabel = "mJy/beam"
+
+    elif cblabel is None and rescale == 1e6:
+        cblabel = r"$\mu$Jy/beam"
+
+    elif cblabel is None:
         try:
             hdr = fits.getheader(filename)
             cblabel = hdr.get("BTYPE")
@@ -717,13 +726,6 @@ def plot_map(
             print_(e)
             cblabel = ""
 
-    elif cblabel == "" and bright_temp:
-        cblabel = r"$T_{\rm b}$ (K)"
-    elif cblabel == "" and rescale == 1e3:
-        cblabel = "mJy/beam"
-
-    elif cblabel == "" and rescale == 1e6:
-        cblabel = r"$\mu$Jy/beam"
 
     # Colorbar
     fig.add_colorbar()
@@ -756,6 +758,9 @@ def plot_map(
 
     if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
         fig.save(savefig)
+
+    # Delete the temporary file created to get rid of extra dimensions
+    if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
 
     return fig
 
@@ -1003,8 +1008,9 @@ def spectral_index(
     beta=False,
     use_aplpy=True,
     cmap="PuOr",
-    vmin=1.7,
-    vmax=3.5,
+    vmin=None,
+    vmax=None,
+    figsize=None, 
     show=True,
     savefig=None,
     return_fig=True
@@ -1030,7 +1036,7 @@ def spectral_index(
     # Plot using APLPy if possible, else fallback to Matplotlib
     if use_aplpy:
         try:
-            index2file = "spectral_index.fits"
+            index2file = ".spectral_index.fits"
             write_fits(index2file, data=index, header=set_hdr_to_iras16293B(hdr1))
             cblabel_freq = r"$_{ 223-100 {\rm GHz}}$"
             fig = plot_map(
@@ -1040,29 +1046,26 @@ def spectral_index(
                 cmap=cmap,
                 vmin=vmin,
                 vmax=vmax,
+                figsize=figsize, 
                 bright_temp=False, 
                 verbose=True,
             )
             fig.show_contour(index2file, colors="black", levels=[1.7, 2, 3])
             fig.add_beam(color="black")
+            if os.path.isfile(index2file): os.remove(index2file)
 
         except Exception as e:
             plt.close()
             print_(f"Imposible to use aplpy: {e}", verbose=True, bold=False, fail=True)
             spectral_index(lam1_, lam2_, use_aplpy=False, show=show, savefig=savefig)
     else:
+        fig = plt.figure(figsize=figsize)
         plt.imshow(index, cmap=cmap, vmin=vmin, vmax=vmax)
         plt.colorbar(pad=0.01).set_label(r"$\alpha_{223-100 {\rm GHz}}$")
         plt.xticks([])
         plt.yticks([])
 
-    if show:
-        plt.show()
-
-    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
-        fig.save(savefig)
-
-    return fig if return_fig else index
+    return plot_checkout(fig, show, savefig) if return_fig else index
 
 
 def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False):
@@ -1128,7 +1131,7 @@ def horizontal_cuts(
     scale_obs=None,
     axis=0,
     lam="3mm",
-    amax="100um",
+    amax="10um",
     prefix="",
     show=True,
     savefig=None,
@@ -1197,9 +1200,10 @@ def horizontal_cuts(
         )
 
     # Plot the cuts from the simulated observations for every inclination angle
-    for angle, color in zip([f"{i}deg" for i in angles], ["tab:blue", "tab:orange"]):
+    #for angle, color in zip([f"{i}deg" for i in angles], ["tab:blue", "tab:orange"]):
+    for angle in [f"{i}deg" for i in angles]:
         # Read data
-        filename = prefix / f"{angle}/data/{lam}_{angle}_a{amax}_alma.fits"
+        filename = prefix / f"amax{amax}/{lam}/{angle}/data/{lam}_{angle}_a{amax}_alma.fits"
         data, hdr = fits.getdata(filename, header=True)
 
         # Drop empty axes. Flip and rescale
@@ -1211,51 +1215,48 @@ def horizontal_cuts(
         plt.plot(
             offset,
             cut,
-            label=f"{angle} " + r"($T_{\rm dust}$ from $T_{\rm gas}$ and RT)",
-            c=color,
+            label=f"{angle} " + r"($T_{\rm dust}=T_{\rm gas}$)",
             *args,
             **kwargs,
         )
 
-        # 		# <PATCH>
-        # Temporal lines to add the curves with Temp. from RT+EOS
-        prefix_ = Path(pwd.as_posix.replace("temp_comb", "temp_eos"))
-        filename = prefix_ / f"{angle}/data/{lam}_{angle}_a{amax}_alma.fits"
-        data, hdr = fits.getdata(filename, header=True)
-        # Drop empty axes. Flip and rescale
-        data = np.fliplr(np.squeeze(data))
-        if not bright_temp:
-            data *= 1e3
-        offset, cut = angular_offset(data, hdr)
-        plt.plot(
-            offset,
-            cut,
-            label=f"{angle} " + r"($T_{\rm dust}$ from $T_{\rm gas}$ only)",
-            c=color,
-            ls="--",
-        )
-    # 		# </PATCH>
+# <PATCH>
+#        # Temporal lines to add the curves with Temp. from RT+EOS
+#        prefix_ = Path(pwd.as_posix.replace("temp_comb", "temp_eos"))
+#        filename = prefix_ / f"amax{amax}/{lam}/{angle}/data/{lam}_{angle}_a{amax}_alma.fits"
+#        data, hdr = fits.getdata(filename, header=True)
+#        # Drop empty axes. Flip and rescale
+#        data = np.fliplr(np.squeeze(data))
+#        if not bright_temp:
+#            data *= 1e3
+#        offset, cut = angular_offset(data, hdr)
+#        plt.plot(
+#            offset,
+#            cut,
+#            label=f"{angle} " + r"($T_{\rm dust}$ from $T_{\rm gas}$ only)",
+#            c=color,
+#            ls="--",
+#        )
+# </PATCH>
 
     # Customize the plot
-    hole_size = 0.014  # arcsec = 2 AU
-    hole_size = (2 * u.au.to(u.pc) / 141) * u.rad.to(u.arcsec)
-    # plt.axvline(-hole_size, lw=1, ls='-', alpha=0.5, color='grey')
-    # plt.axvline(hole_size, lw=1, ls='-', alpha=0.5, color='grey')
-    # plt.text(0.003, 0, 'Central hole', rotation=90, horizontalalignment='center')
+    if 'lmd2.4' in str(pwd):
+        hole_size = 0.014  # arcsec = 2 AU @ 141pc
+        hole_size = (2 * u.au.to(u.pc) / 141) * u.rad.to(u.arcsec)
+        plt.axvline(-hole_size, lw=1, ls='-', alpha=0.5, color='grey')
+        plt.axvline(hole_size, lw=1, ls='-', alpha=0.5, color='grey')
+        plt.text(0.003, 0, 'Central hole', rotation=90, horizontalalignment='center')
+
     plt.axvline(0, ls="--", lw=1, c="grey")
     plt.annotate('0.1" = 14AU', (0.75, 0.85), xycoords="axes fraction", fontsize=13)
+    plt.annotate(r'$\lambda=$ %s'%lam, (0.75, 0.77), xycoords="axes fraction", fontsize=13)
     plt.legend(ncol=1, loc="upper left")
-    plt.title("Horizontal cut for different inclination angles.")
     plt.xlabel("Angular offset (arcseconds)")
     ylabel_ = r"$T_{\rm b}$ (K)" if bright_temp else r"mJy/beam"
     plt.ylabel(ylabel_)
     plt.xlim(-0.35, 0.35)
 
-    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
-        plt.savefig(savefig)
-
-    if show:
-        plt.show()
+    plot_checkout(fig, show, savefig)
 
     return fig
 
