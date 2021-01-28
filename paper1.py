@@ -4,9 +4,10 @@
 	- Figure 3: Dust opacities for several a_max with a silicate & graphite composition.
 	- Figure 4: Dust temperature radial profiles for Tgas, Protostellar heating and combined.
 	- Figure 5: Horizontal cuts for Bo's disk and Ilee's disk.
-	- Figure 6: Synthetic spectral index.
+	- Figure 6: Simulated observations at 3mm, 1.3mm and spectral index.
     Figsize two-column: 18cm x 5.5cm = 3*2.36in x 2.17in
 """
+import os
 from astropy.io import ascii, fits
 import astropy.units as u
 import matplotlib.pyplot as plt
@@ -17,63 +18,207 @@ import utils
 
 home = Path.home()
 
-def plot_observations(lam='1.3mm', show=True, savefig='', figsize=(6.90,6.00), *args, **kwargs):
+def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
     """ Figure 1 """
 
-    fig = utils.plot_map(
-        home/f'phd/polaris/sourceB_{lam}.fits',
-        figsize=figsize,
+    fig = plt.figure(figsize=figsize)
+
+    f1 = utils.plot_map(
+        home/f'phd/polaris/sourceB_1.3mm.fits',
+        figsize=None,
         stretch='linear', 
-        scalebar=30*u.au, 
+        scalebar=20*u.au, 
         vmin=0, 
-        vmax=287 if lam=='1.3mm' else 468, 
+        vmax=287, 
+        figure=fig,
+        subplot=[0.12, 0.05, 0.25, 0.9], 
     )
-    fig.scalebar.set_color('white')
-    fig.ticks.set_color("white")
-    fig.recenter(248.0942916667, -24.47550000000, radius=(70*u.au.to(u.pc)/141)*u.rad.to(u.deg))
-    fig.add_label(0.78, 0.90, r'$\lambda = $'+lam, relative=True, layer='lambda', color='white', size=20)
-    fig.add_beam(edgecolor='white', facecolor='none', linewidth=1)
-    fig.axis_labels.set_xtext('Right Ascension (J2000)')
-    fig.axis_labels.set_ytext('Declination (J2000)')
-    plt.tight_layout()
-
-    return utils.plot_checkout(fig, show=show, savefig=savefig)
-
-
-def plot_obs_spectral_index(show=True, savefig='', figsize=(6.90, 6.00), *args, **kwargs):
-    """ Figure 1 """
-
-    filename = home/f'phd/polaris/sourceB_spectral_index.fits' 
-    fig = utils.plot_map(
-        filename, 
+    f2 = utils.plot_map(
+        home/f'phd/polaris/sourceB_3mm.fits',
+        figsize=None,
+        stretch='linear', 
+        scalebar=20*u.au, 
+        vmin=0, 
+        vmax=468, 
+        figure=fig,
+        subplot=[0.40, 0.05, 0.25, 0.9], 
+    )
+    f3 = utils.plot_map(
+        filename = home/f'phd/polaris/sourceB_spectral_index.fits', 
         cmap='PuOr', 
         cblabel='Spectral index', 
-        figsize=figsize, 
+        figsize=None, 
         stretch='linear',
-        scalebar=30*u.au,
+        scalebar=20*u.au,
         bright_temp=False, 
+        figure=fig,
+        subplot=[0.68, 0.05, 0.25, 0.9], 
     )
-    fig.scalebar.set_color('black')
-    fig.ticks.set_color('black')
-    fig.recenter(248.0942916667, -24.47550000000, radius=(70*u.au.to(u.pc)/141)*u.rad.to(u.deg))
-    fig.add_label(0.78, 0.90, r'$\alpha_{223-100 {\rm GHz}}$', relative=True, layer='lambda', color='black', size=20, weight='bold')
-    fig.add_beam(edgecolor='white', facecolor='none', linewidth=1)
-    fig.axis_labels.set_xtext('Right Ascension (J2000)')
-    fig.axis_labels.set_ytext('Declination (J2000)')
-    fig.show_contour(colors="black", levels=[1.7, 2, 3])
-    plt.tight_layout()
+    simulation_extent = 0.709198230621132
+    img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
+    #img_radius = (70*u.au.to(u.pc)/141)*u.rad.to(u.deg)
 
-    return utils.plot_checkout(fig, show=show, savefig=savefig)
+    for f,lam in zip([f1,f2], ['1.3mm', '3mm']):
+        f.recenter(248.0942916667, -24.47550000000, radius=img_radius)
+        f.scalebar.set_color('white')
+        f.ticks.set_color('white')
+        f.ticks.set_length(7)
+        f.ticks.set_linewidth(2)
+        f.add_label(0.79, 0.90, r'$\lambda =$ '+lam, relative=True, layer='lambda', color='white', size=25)
+        f.add_beam(edgecolor='white', facecolor='none', linewidth=1)
+        f.axis_labels.set_xtext('Right Ascension (J2000)')
+    
+    for f in [f2,f3]:
+        f.tick_labels.hide_y()
+        f.axis_labels.hide_y()
+        f.axis_labels.set_xtext('Right Ascension (J2000)')
+
+    f1.axis_labels.set_ytext('Declination (J2000)')
+    f3.recenter(248.0942916667, -24.47550000000, radius=img_radius)
+    f3.scalebar.set_color('black')
+    f3.ticks.set_color('black')
+    f3.ticks.set_length(7)
+    f3.ticks.set_linewidth(2)
+    f3.add_label(0.80, 0.95, r'$\alpha_{223-100 {\rm GHz}}$', relative=True, layer='lambda', color='black', size=25, weight='bold')
+    f3.add_beam(edgecolor='black', facecolor='none', linewidth=1)
+    f3.show_contour(colors="black", levels=[1.7, 2, 3])
+
+    #plt.tight_layout()
+
+    return utils.plot_checkout(fig, show, savefig=savefig, path=home/'phd/plots/paper1')
 
 
-def plot_disk_bo(show=True, savefig='', figsize=(6.4,4.8)):
+def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_aplpy=False):
     """ Figure 2 """
-    pass
+    from matplotlib.colors import LogNorm
+    
+    # Set the global path
+    if 'bo' in model:
+        filename = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc'
+        density_ticks = [-19, -17, -15, -13, -11]
+        temperature_ticks = [10, 30, 50, 70, 90, 110, 130, 150, 170, 190]
+    elif 'ilee' in model: 
+        filename = home/'phd/ilees_disk/results/dust_emission/temp_eos/sg'
+        density_ticks = [-14, -13, -12, -11, -10]
+        temperature_ticks = [200, 400, 600, 800, 1000, 1200, 1400]
+
+    # Read the data
+    data, hdr = fits.getdata(filename/'amax10um/3mm/0deg/data/input_midplane.fits.gz', header=True)
+    temp = {'faceon': data[2,0], 'edgeon': data[2,1]}
+    dens = {'faceon': data[0,0], 'edgeon': data[0,1]}
+
+    # Convert density to cgs
+    dens = {p: d*(u.kg*u.m**-3).to(u.g*u.cm**-3) for (p,d) in dens.items()}
+
+    # Zoom in the maps
+    dens['faceon'] = np.log10(dens['faceon'][300:700,300:700]).T
+    temp['faceon'] = temp['faceon'][300:700,300:700].T
+    dens['edgeon'] = np.log10(dens['edgeon'][450:550,300:700])
+    temp['edgeon'] = temp['edgeon'][450:550,300:700]
+
+    # Plot using APLPy
+    if use_aplpy:
+        from aplpy import FITSFigure
+        
+        # Write the zoomed-in array into temporal files
+        utils.write_fits('.dens_faceon.fits', dens['faceon'], utils.set_hdr_to_iras16293B(hdr))
+        utils.write_fits('.temp_faceon.fits', temp['faceon'], utils.set_hdr_to_iras16293B(hdr))
+        utils.write_fits('.dens_edgeon.fits', dens['edgeon'], utils.set_hdr_to_iras16293B(hdr))
+        utils.write_fits('.temp_edgeon.fits', temp['edgeon'], utils.set_hdr_to_iras16293B(hdr))
+
+        # Initialize the multipanel figure
+        fig = plt.figure(figsize=figsize)
+        df = FITSFigure('.dens_faceon.fits', figure=fig, subplot=[0.1, 0.191, 0.34, 0.65])
+        tf = FITSFigure('.temp_faceon.fits', figure=fig, subplot=[0.5, 0.191, 0.34, 0.65])
+        de = FITSFigure('.dens_edgeon.fits', figure=fig, subplot=[0.1, 0.19, 0.34, 0.10])
+        te = FITSFigure('.temp_edgeon.fits', figure=fig, subplot=[0.5, 0.19, 0.34, 0.10])
+
+        # Customize the plot
+        [p.show_colorscale(cmap='heat') for p in [tf, te]]
+        [p.show_colorscale(cmap='seaborn') for p in [df, de]]
+        [p.add_colorbar(location='top') for p in [df, tf]]
+        df.colorbar.set_axis_label_text(r'$n_{\rm gas}$ (g cm$^{-3}$)')
+        tf.colorbar.set_axis_label_text(r'$T_{\rm gas}$ (K)')
+        [p.axis_labels.hide() for p in [df, tf, de, te]]
+        [p.tick_labels.hide() for p in [df, tf, de, te]]
+
+        # Show the figure
+        if show:
+            fig.canvas.draw()
+
+        # Remove temporal files
+        for t in ['dens', 'temp']:
+            for p in ['faceon', 'edgeon']:
+                if os.path.isfile(f'.{t}_{p}.fits'): os.remove(f'.{t}_{p}.fits')
+    
+    # Plot using matplotlib GridSpec
+    else:
+
+        # Define the pixel size in physical units
+        dx = np.round(hdr['CDELT2B'], 1)
+        dx_unit = hdr.get('CUNIT2B')
+        
+        # Params for the subplot grid
+        gridspec = {
+            'height_ratios': [4,1], 
+            'width_ratios': [1,1],
+        }
+
+        # Setup the figure
+        fig, p = plt.subplots(nrows=2, ncols=2, figsize=figsize, gridspec_kw=gridspec)
+
+        # Plot data
+        df = p[0,0].imshow(dens['faceon'], interpolation='bicubic', cmap='cividis')
+        tf = p[0,1].imshow(temp['faceon'], interpolation='bicubic', cmap='Spectral_r')
+        de = p[1,0].imshow(dens['edgeon'], interpolation='bicubic', cmap='cividis')
+        te = p[1,1].imshow(temp['edgeon'], interpolation='bicubic', cmap='Spectral_r')
+        
+        # Add colorbars
+        df_cb = fig.colorbar(de, ax=p[1,0], pad=0.01, orientation='horizontal', ticks=density_ticks)
+        tf_cb = fig.colorbar(te, ax=p[1,1], pad=0.01, orientation='horizontal', ticks=temperature_ticks)
+        df_cb.set_label(r'$\log(n_{\rm gas})$ (g cm$^{-3}$)')
+        tf_cb.set_label(r'$T_{\rm gas}$ (K)')
+
+        # Set the axes scales and labels 
+        tick_pars = {
+            'axis': 'both',
+            'colors': 'white', 
+            'direction': 'in', 
+            'which': 'both', 
+            'bottom': True,
+            'top': True, 
+            'left': True, 
+            'right': True,
+        }
+#        [p.tick_params(**tick_pars) for p in [p[0,0], p[1,0], p[0,1], p[1,1]]]
+
+        p[0,0].set_xticks([])
+        p[0,1].set_xticks([])
+        p[1,0].set_xticks([])
+        p[1,1].set_xticks([])
+
+        p[0,0].set_yticks([0, 99, 199, 299, 399])
+        p[1,0].set_yticks([0, 24, 49, 74, 99])
+        p[0,1].set_yticks([0, 99, 199, 299, 399])
+        p[1,1].set_yticks([0, 24, 49, 74, 99])
+        p[0,0].set_yticklabels(['', f'{100*dx:.0f}', '0', f'{-100*dx:.0f}', ''])
+        p[1,0].set_yticklabels(['', f'{25*dx:.0f}', '0', f'{-25*dx:.0f}', ''])
+        p[0,1].set_yticklabels(['', f'{100*dx:.0f}', '0', f'{-100*dx:.0f}', ''])
+        p[1,1].set_yticklabels(['', f'{25*dx:.0f}', '0', f'{-25*dx:.0f}', ''])
+        p[0,1].yaxis.set_label_position('right')
+        p[1,1].yaxis.set_label_position('right')
+        p[0,1].yaxis.set_ticks_position('right')
+        p[1,1].yaxis.set_ticks_position('right')
+        p[0,0].set_ylabel(f'{dx_unit}')
+        p[1,0].set_ylabel(f'{dx_unit}')
+        p[0,1].set_ylabel(f'{dx_unit}')
+        p[1,1].set_ylabel(f'{dx_unit}')
 
 
-def plot_disk_ilee(show=True, savefig='', figsize=(6.4,4.8)):
-    """ Figure 2 """
-    pass
+        # Adjust the subplots
+        plt.subplots_adjust(wspace=0.01, hspace=0.0)
+
+    return utils.plot_checkout(fig, show, savefig, path=home/'phd/plots/paper1/')
 
 
 def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
@@ -280,8 +425,9 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
-def plot_spectral_index(model, show=True, savefig='', figsize=(6.4,4.8)):
+def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=None, figsize=(17.5,6)):
     """ Figure 6 """
+    from aplpy import FITSFigure
 
     if model == 'bo':
         prefix=Path('/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/amax10um/')
@@ -290,14 +436,66 @@ def plot_spectral_index(model, show=True, savefig='', figsize=(6.4,4.8)):
     else:
         prefix=''
 
-    fig = utils.spectral_index(
+    fig = plt.figure(figsize=figsize) 
+
+    f1 = utils.plot_map(
+        prefix/f'1.3mm/{incl}/data/1.3mm_{incl}_a10um_alma.fits', 
+        figsize=None,
+        stretch='linear', 
+        scalebar=20*u.au, 
+        vmin=0, 
+        vmax=None, 
+        figure=fig,
+        subplot=[0.12, 0.05, 0.25, 0.9], 
+    )
+    f2 = utils.plot_map(
+        prefix/f'3mm/{incl}/data/3mm_{incl}_a10um_alma.fits', 
+        figsize=None,
+        stretch='linear', 
+        scalebar=20*u.au, 
+        vmin=0, 
+        vmax=None, 
+        figure=fig,
+        subplot=[0.40, 0.05, 0.25, 0.9], 
+    )
+    f3 = utils.spectral_index(
         prefix/f'1.3mm/0deg/data/1.3mm_0deg_a10um_alma.fits', 
         prefix/f'3mm/0deg/data/3mm_0deg_a10um_alma_smoothed.fits', 
+        figsize=None, 
         vmin=1.7, 
         vmax=3.5, 
-        figsize=figsize, 
         show=False,
+        scalebar=20*u.au,
+        figure=fig,
+        subplot=[0.68, 0.05, 0.25, 0.9], 
     )
+    simulation_extent = 0.709198230621132
+    img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
+    #img_radius = (70*u.au.to(u.pc)/141)*u.rad.to(u.deg)
+
+    for f,lam in zip([f1,f2], ['1.3mm', '3mm']):
+        f.recenter(248.0942916667, -24.47550000000, radius=img_radius)
+        f.scalebar.set_color('white')
+        f.ticks.set_color('white')
+        f.ticks.set_length(7)
+        f.ticks.set_linewidth(2)
+        f.add_label(0.79, 0.90, r'$\lambda =$ '+lam, relative=True, layer='lambda', color='white', size=25)
+        f.add_label(0.26, 0.90, r'incl. = 0 deg', relative=True, layer='inclination', color='white', size=25)
+        f.add_label(0.26, 0.80, r'$a_{\rm max}=10\mu$m', relative=True, layer='amax', color='white', size=25)
+        f.add_beam(edgecolor='white', facecolor='none', linewidth=1)
+        f.axis_labels.set_xtext('Right Ascension (J2000)')
+    
+    for f in [f2,f3]:
+        f.tick_labels.hide_y()
+        f.axis_labels.hide_y()
+        f.axis_labels.set_xtext('Right Ascension (J2000)')
+
+    f1.axis_labels.set_ytext('Declination (J2000)')
+    f3.recenter(248.0942916667, -24.47550000000, radius=img_radius)
+    f3.add_beam(edgecolor='white', facecolor='none', linewidth=1)
+    f3.scalebar.set_color('#af5606')
+    f3.ticks.set_color('black')
+    f3.ticks.set_length(7)
+    f3.ticks.set_linewidth(2)
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
-

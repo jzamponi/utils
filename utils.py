@@ -669,7 +669,9 @@ def plot_map(
     cmap="magma",
     verbose=True,
     bright_temp=True,
-    figsize=(10,9),
+    figsize=None,
+    vmin=None, 
+    vmax=None, 
     *args,
     **kwargs,
 ):
@@ -706,8 +708,8 @@ def plot_map(
             bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
         )
 
-    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize)
-    fig.show_colorscale(cmap=cmap, *args, **kwargs)
+    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
+    fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin)
 
     # Auto set the colorbar label if not provided
     if cblabel is None and bright_temp:
@@ -1008,12 +1010,15 @@ def spectral_index(
     beta=False,
     use_aplpy=True,
     cmap="PuOr",
+    scalebar=30*u.au,
     vmin=None,
     vmax=None,
     figsize=None, 
     show=True,
     savefig=None,
-    return_fig=True
+    return_fig=True, 
+    *args,
+    **kwargs
 ):
     """Calculate the spectral index between observations at two wavelengths.
     lam1 must be shorter than lam2.
@@ -1042,16 +1047,19 @@ def spectral_index(
             fig = plot_map(
                 index2file,
                 cblabel=r"$\beta$"+cblabel_freq if beta else r"$\alpha$"+cblabel_freq,
-                scalebar=30 * u.au,
+                stretch='linear',
+                scalebar=scalebar,
                 cmap=cmap,
                 vmin=vmin,
                 vmax=vmax,
                 figsize=figsize, 
                 bright_temp=False, 
                 verbose=True,
+                *args, 
+                **kwargs
             )
             fig.show_contour(index2file, colors="black", levels=[1.7, 2, 3])
-            fig.add_beam(color="black")
+            fig.add_beam(facecolor='white', edgecolor='black', linewidth=3)
             if os.path.isfile(index2file): os.remove(index2file)
 
         except Exception as e:
