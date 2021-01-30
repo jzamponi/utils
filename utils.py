@@ -100,7 +100,7 @@ def print_(string, verbose=None, fname=None, bold=False, fail=False, *args, **kw
             print(f"[{fname}] {string}", *args, **kwargs)
 
 
-def write_fits(filename, data, header, overwrite=True, verbose=False):
+def write_fits(filename, data, header=None, overwrite=True, verbose=False):
     # Get the name of the calling function by tracing one level up in the stack
     caller = sys._getframe(1).f_code.co_name
 

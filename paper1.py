@@ -100,7 +100,7 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
     elif 'ilee' in model: 
         filename = home/'phd/ilees_disk/results/dust_emission/temp_eos/sg'
         density_ticks = [-14, -13, -12, -11, -10]
-        temperature_ticks = [200, 400, 600, 800, 1000, 1200, 1400]
+        temperature_ticks = [100, 300, 500, 700, 900]
 
     # Read the data
     data, hdr = fits.getdata(filename/'amax10um/3mm/0deg/data/input_midplane.fits.gz', header=True)
@@ -168,10 +168,15 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
         fig, p = plt.subplots(nrows=2, ncols=2, figsize=figsize, gridspec_kw=gridspec)
 
         # Plot data
-        df = p[0,0].imshow(dens['faceon'], interpolation='bicubic', cmap='cividis')
-        tf = p[0,1].imshow(temp['faceon'], interpolation='bicubic', cmap='Spectral_r')
-        de = p[1,0].imshow(dens['edgeon'], interpolation='bicubic', cmap='cividis')
-        te = p[1,1].imshow(temp['edgeon'], interpolation='bicubic', cmap='Spectral_r')
+        min_d = None
+        min_t = None
+        max_d = None
+        max_t = None if model == 'bo' else 900
+
+        df = p[0,0].imshow(dens['faceon'], interpolation='bicubic', vmin=min_d, vmax=max_d, cmap='cividis')
+        tf = p[0,1].imshow(temp['faceon'], interpolation='bicubic', vmin=min_t, vmax=max_t, cmap='Spectral_r')
+        de = p[1,0].imshow(dens['edgeon'], interpolation='bicubic', vmin=min_d, vmax=max_d, cmap='cividis')
+        te = p[1,1].imshow(temp['edgeon'], interpolation='bicubic', vmin=min_t, vmax=max_t, cmap='Spectral_r')
         
         # Add colorbars
         df_cb = fig.colorbar(de, ax=p[1,0], pad=0.01, orientation='horizontal', ticks=density_ticks)
@@ -297,8 +302,8 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
 
     plt.axvline(1.3e3, ls=':', color='grey')
     plt.axvline(3e3, ls=':', color='grey')
-    plt.text(0.9e3, 1e2, '1.3mm', rotation=90, size=13, color='grey') 
-    plt.text(2.2e3, 1e2, '3mm', rotation=90, size=13, color='grey') 
+    plt.text(0.8e3, 1e2, '1.3 mm', rotation=90, size=13, color='grey') 
+    plt.text(1.9e3, 1e2, '3 mm', rotation=90, size=13, color='grey') 
 
     plt.tick_params(which='both', direction='in', left=True, right=True, bottom=True, top=True)
     plt.minorticks_on()
@@ -315,83 +320,88 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
 
 
 
-def dust_temperature_bo(show=True, savefig='', figsize=(6.4,4.8), nthreads=1):
-    """ Figure 4 """
+def plot_dust_temperature(show=True, savefig=None, figsize=(6, 6), smooth=True, nthreads=1):
+    """ Figure 4 
 
-    prefix = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/amax10um'
+        If smooth, it will smooth out the curves by fitting a polynomial
+    """
 
-    r_rt, rt = utils.radial_profile(
-        fits.getdata(f'{prefix}/data/output_midplane.fits.gz')[0,0], 
-        return_radii=True, 
-        dr=fits.getheader(f'{prefix}/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
-        nthreads=nthreads, 
-    )
-    r_eos, eos = utils.radial_profile(
-        fits.getdata(f'{prefix}/temp_offset/data/input_midplane.fits.gz')[2,0], 
-        return_radii=True, 
-        dr=fits.getheader(f'{prefix}/temp_offset/data/input_midplane.fits.gz')['cdelt1b']*u.au, 
-        nthreads=nthreads, 
-    )
-    r_eos_rt, eos_rt = utils.radial_profile(
-        fits.getdata(f'{prefix}/temp_offset/data/output_midplane.fits.gz')[0,0], 
-        return_radii=True, 
-        dr=fits.getheader(f'{prefix}/temp_offset/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
-        nthreads=nthreads, 
-    )
+    prefixes = {
+        'bo' : home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/amax10um', 
+        'ilee' : home/'phd/ilees_disk/results/dust_heating/sg/amax10um',
+    }
 
-    fig = plt.figure(figsize=figsize)
-    plt.semilogx(r_rt, rt, ls=':', c='black', label='Protostar heating')
-    plt.semilogx(r_eos, eos, ls='--', c='black', label=r'$T_{\rm gas}$')
-    plt.semilogx(r_eos_rt, eos_rt, ls='-', c='black', label=r'$T_{\rm gas}$ and Protostar heating')
-    plt.axvline(1.9, ls='--', c='tab:red', lw=1)
-    plt.text(1.05, 220, 'Central', c='tab:red')
-    plt.text(1.20, 210, 'hole', c='tab:red')
-    plt.xlim(1e0,1e2)
-    plt.ylim(0, 370)
-    plt.xlabel('Radius (AU)')
-    plt.ylabel('Dust temperature (K)')
-    plt.legend()
-    plt.tight_layout()
+    fig, p_ = plt.subplots(nrows=2, ncols=1, figsize=figsize, sharex=True)
 
-    return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
+    for model, p in zip(['bo', 'ilee'], p_):
+        prefix = prefixes[model]
 
+        r_rt, rt = utils.radial_profile(
+            fits.getdata(f'{prefix}/data/output_midplane.fits.gz')[0,0], 
+            return_radii=True, 
+            dr=fits.getheader(f'{prefix}/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
+            nthreads=nthreads, 
+        )
+        r_eos, eos = utils.radial_profile(
+            fits.getdata(f'{prefix}/temp_offset/data/input_midplane.fits.gz')[2,0], 
+            return_radii=True, 
+            dr=fits.getheader(f'{prefix}/temp_offset/data/input_midplane.fits.gz')['cdelt1b']*u.au, 
+            nthreads=nthreads, 
+        )
+        r_eos_rt, eos_rt = utils.radial_profile(
+            fits.getdata(f'{prefix}/temp_offset/data/output_midplane.fits.gz')[0,0], 
+            return_radii=True, 
+            dr=fits.getheader(f'{prefix}/temp_offset/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
+            nthreads=nthreads, 
+        )
+    
+        # Cache the results from the radial profiles
+        tempfile = home/f'phd/plots/paper1/.radial_dust_temperatures_{model}.fits'
+        if os.path.isfile(tempfile):
+            data = np.zeros(3)
+            data[0] = (r, r_t)
+            data[1] = (r_eos, eos)
+            data[2] = (r_eos_rt, eos_rt)
+            utils.write_fits(tempfile, data, overwrite=True)
 
-def dust_temperature_ilee(show=True, savefig='', figsize=(6.4,4.8), nthreads=1):
-    """ Figure 4 """
+        else:
+            data = fits.getdata(tempfile)
+            r_rt, rt = data[0]
+            r_eos, eos = data[1]
+            rt_eos_rt, rt_eos = data[2]
+        
 
-    prefix = home/'phd/ilees_disk/results/dust_heating/sg/amax10um'
+        # Smooth the curves with a polyfit
+        if smooth:
+            pol_order = 5
+            fit = lambda x, y: np.poly1d(np.polyfit(x, y, pol_order))(x)
+            rt = fit(r_rt, rt)
+            eos = fit(r_eos, eos)
+            eos_rt = fit(r_eos_rt, eos_rt)
 
-    r_rt, rt = utils.radial_profile(
-        fits.getdata(f'{prefix}/data/output_midplane.fits.gz')[0,0], 
-        return_radii=True, 
-        dr=fits.getheader(f'{prefix}/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
-        nthreads=nthreads, 
-    )
-    r_eos, eos = utils.radial_profile(
-        fits.getdata(f'{prefix}/temp_offset/data/input_midplane.fits.gz')[2,0], 
-        return_radii=True, 
-        dr=fits.getheader(f'{prefix}/temp_offset/data/input_midplane.fits.gz')['cdelt1b']*u.au, 
-        nthreads=nthreads, 
-    )
-    r_eos_rt, eos_rt = utils.radial_profile(
-        fits.getdata(f'{prefix}/temp_offset/data/output_midplane.fits.gz')[0,0], 
-        return_radii=True, 
-        dr=fits.getheader(f'{prefix}/temp_offset/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
-        nthreads=nthreads, 
-    )
+        p.semilogx(r_rt, rt, ls=':', c='black', label=r'$T_{\rm dust} =$ Protostar heating')
+        p.semilogx(r_eos, eos, ls='--', c='black', label=r'$T_{\rm dust} = T_{\rm gas}$')
+        p.semilogx(r_eos_rt, eos_rt, ls='-', c='black', 
+            label=r'$T_{\rm dust} = T_{\rm gas}$ and Protostar heating'
+        )
 
-    fig = plt.figure(figsize=figsize)
-    plt.semilogx(r_rt, rt, ls=':', c='black', label='Protostar heating')
-    plt.semilogx(r_eos, eos, ls='--', c='black', label=r'$T_{\rm gas}$')
-    plt.semilogx(r_eos_rt, eos_rt, ls='-', c='black', label=r'$T_{\rm gas}$ and Protostar heating')
-    plt.axhline(1200, ls='--', c='tab:red', lw=1)
-    plt.text(0.2, 1220, 'Silicate sublimation', c='tab:red')
-    plt.xlim(0,1e2)
-    plt.ylim(0, 1345)
-    plt.xlabel('Radius (AU)')
-    plt.ylabel('Dust temperature (K)')
-    plt.legend()
-    plt.tight_layout()
+        if model == 'bo':
+            p.axvline(1.9, ls='--', c='tab:red', lw=1)
+            p.text(1.05, 220, 'Central', c='tab:red')
+            p.text(1.20, 210, 'hole', c='tab:red')
+            p.set_ylim(0, 370)
+        elif model == 'ilee':
+            p.axhline(1200, ls='--', c='tab:red', lw=1)
+            p.text(1.2, 1220, 'Silicate sublimation', c='tab:red')
+            p.set_ylim(0, 1350)
+
+        p.set_xlim(1e0,1e2)
+        p_[1].set_xlabel('Radius (AU)')
+        p.set_ylabel('Dust temperature (K)')
+        p.legend()
+
+    plt.subplots_adjust(hspace=0)
+#    plt.tight_layout()
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
@@ -404,10 +414,10 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     """
     
     if model == 'bo':
-        prefix='/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
-        prefix='/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/'
+        prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
+        prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/'
     elif model == 'ilee':
-        prefix='/home/jz/phd/ilees_disk/results/dust_emission/temp_eos/sg/'
+        prefix=home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/'
     else:
         prefix=''
 
@@ -430,9 +440,9 @@ def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=No
     from aplpy import FITSFigure
 
     if model == 'bo':
-        prefix=Path('/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/amax10um/')
+        prefix=Path(home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/amax10um/')
     elif model == 'ilee':
-        prefix=Path('/home/jz/phd/ilees_disk/results/dust_emission/temp_eos/sg/amax10um/')
+        prefix=Path(home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/amax10um/')
     else:
         prefix=''
 
