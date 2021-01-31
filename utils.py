@@ -498,9 +498,9 @@ def circular_mask(shape, c, r, angle_range=(0, 360), ring=False):
 @elapsed_time
 def radial_profile(
     data,
+    slices=[0,0], 
     func=np.nanmean,
     step=1,
-    dr=None,
     return_radii=False,
     show=False,
     savefig=None,
@@ -530,6 +530,10 @@ def radial_profile(
     # Read data from fits file if filename is provided
     if isinstance(data, (str,PosixPath)):
         data, hdr = fits.getdata(data, header=True)
+        data = data[slices[0], slices[1]]
+        dr = hdr.get('CDELT1B') * u.au
+    else:
+        dr = input('[radial_profile] Enter dr [AU]: ')
 
     # Drop empty axes
     data = data.squeeze()
@@ -553,13 +557,13 @@ def radial_profile(
 
     # Generate the radial axis for plotting if required
     if return_radii or show or savefig:
-        radii = radii[::-1] * dr.value
+        radii = radii[::-1] 
 
     # Plot the radial profile if required
     if show or savefig is not None:
         plt.semilogx(radii, averages, *args, **kwargs)
-        plt.xlabel(f"Radius ({dr.unit})")
-        # plt.xlim(radii.min(), radii.max())
+        plt.ylabel(r'$T_{\rm dust}$')
+        plt.xlabel(f"Radius (AU)")
         if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
             plt.save(savefig)
         if show:

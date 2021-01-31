@@ -320,10 +320,10 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
 
 
 
-def plot_dust_temperature(show=True, savefig=None, figsize=(6, 6), smooth=True, nthreads=1):
+def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False, nthreads=1):
     """ Figure 4 
 
-        If smooth, it will smooth out the curves by fitting a polynomial
+        If smooth, it will smooth out the curves by interpolating with a spline3
     """
 
     prefixes = {
@@ -336,42 +336,45 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 6), smooth=True, 
     for model, p in zip(['bo', 'ilee'], p_):
         prefix = prefixes[model]
 
-        r_rt, rt = utils.radial_profile(
-            fits.getdata(f'{prefix}/data/output_midplane.fits.gz')[0,0], 
-            return_radii=True, 
-            dr=fits.getheader(f'{prefix}/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
-            nthreads=nthreads, 
-        )
-        r_eos, eos = utils.radial_profile(
-            fits.getdata(f'{prefix}/temp_offset/data/input_midplane.fits.gz')[2,0], 
-            return_radii=True, 
-            dr=fits.getheader(f'{prefix}/temp_offset/data/input_midplane.fits.gz')['cdelt1b']*u.au, 
-            nthreads=nthreads, 
-        )
-        r_eos_rt, eos_rt = utils.radial_profile(
-            fits.getdata(f'{prefix}/temp_offset/data/output_midplane.fits.gz')[0,0], 
-            return_radii=True, 
-            dr=fits.getheader(f'{prefix}/temp_offset/data/output_midplane.fits.gz')['cdelt1b']*u.au, 
-            nthreads=nthreads, 
-        )
-    
-        # Cache the results from the radial profiles
-        tempfile = home/f'phd/plots/paper1/.radial_dust_temperatures_{model}.fits'
-        if os.path.isfile(tempfile):
-            data = np.zeros(3)
-            data[0] = (r, r_t)
-            data[1] = (r_eos, eos)
-            data[2] = (r_eos_rt, eos_rt)
-            utils.write_fits(tempfile, data, overwrite=True)
+        for curve in ['rt', 'eos', 'eos_rt']: 
+            tempfile = home/f'phd/plots/paper1/.profile_{model}_{curve}.fits'
+            # Read the results from file 
+            if os.path.isfile(tempfile):
+                data = fits.getdata(tempfile)
+                if curve == 'rt':
+                    r_rt, rt = data[0], data[1]
+                elif curve == 'eos':
+                    r_eos, eos = data[0], data[1]
+                elif curve == 'eos_rt':
+                    r_eos_rt, eos_rt = data[0], data[1]
 
-        else:
-            data = fits.getdata(tempfile)
-            r_rt, rt = data[0]
-            r_eos, eos = data[1]
-            rt_eos_rt, rt_eos = data[2]
-        
+            # If not cached, calculate the radial averages and print  to tape
+            else:
+                if curve == 'rt':
+                    r_rt, rt = utils.radial_profile(
+                        f'{prefix}/data/output_midplane.fits.gz',  
+                        return_radii=True, 
+                        nthreads=nthreads, 
+                    )
+                    utils.write_fits(tempfile, np.array([r_rt, rt]), overwrite=True)
+                elif curve == 'eos':
+                    r_eos, eos = utils.radial_profile(
+                        f'{prefix}/temp_offset/data/input_midplane.fits.gz', 
+                        slices=[2,0], 
+                        return_radii=True, 
+                        nthreads=nthreads, 
+                    )
+                    utils.write_fits(tempfile, np.array([r_eos, eos]), overwrite=True)
+                elif curve == 'eos_rt':
+                    r_eos_rt, eos_rt = utils.radial_profile(
+                        f'{prefix}/temp_offset_ccas/data/output_midplane.fits.gz', 
+                        return_radii=True, 
+                        nthreads=nthreads, 
+                    )
+                    utils.write_fits(tempfile, np.array([r_eos_rt, eos_rt]), overwrite=True)
 
         # Smooth the curves with a polyfit
+        # TO DO: Try with a spline3
         if smooth:
             pol_order = 5
             fit = lambda x, y: np.poly1d(np.polyfit(x, y, pol_order))(x)
@@ -379,26 +382,32 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 6), smooth=True, 
             eos = fit(r_eos, eos)
             eos_rt = fit(r_eos_rt, eos_rt)
 
-        p.semilogx(r_rt, rt, ls=':', c='black', label=r'$T_{\rm dust} =$ Protostar heating')
+        p.semilogx(r_rt, rt, ls=':', c='black', label=r'$T_{\rm dust} =$ Star heating')
         p.semilogx(r_eos, eos, ls='--', c='black', label=r'$T_{\rm dust} = T_{\rm gas}$')
         p.semilogx(r_eos_rt, eos_rt, ls='-', c='black', 
-            label=r'$T_{\rm dust} = T_{\rm gas}$ and Protostar heating'
+            label=r'$T_{\rm dust} = T_{\rm gas}$ and'+'\n\tstar heating'
         )
 
+        plt.rcParams['font.size'] = 12
         if model == 'bo':
-            p.axvline(1.9, ls='--', c='tab:red', lw=1)
-            p.text(1.05, 220, 'Central', c='tab:red')
-            p.text(1.20, 210, 'hole', c='tab:red')
-            p.set_ylim(0, 370)
+            p.axvline(1.7, ls='--', c='tab:red', lw=1)
+            p.text(0.3, 170, 'Central', c='tab:red', size=10)
+            p.text(0.35, 150, 'hole', c='tab:red', size=10)
+            p.annotate('gravitationally\n stable model', (0.05,0.82), xycoords='axes fraction', weight='bold') 
+            p.set_ylim(-10, 370)
+            p.set_yticks(np.arange(0, 400, 50))
+            p.legend(loc='upper right')
         elif model == 'ilee':
             p.axhline(1200, ls='--', c='tab:red', lw=1)
-            p.text(1.2, 1220, 'Silicate sublimation', c='tab:red')
-            p.set_ylim(0, 1350)
+            p.text(11, 1100, 'Silicate sublimation', c='tab:red')
+            p.annotate('gravitationally\n unstable model', (0.05,0.82), xycoords='axes fraction', weight='bold') 
+            p.set_ylim(-50, 1250)
+            p.set_yticks(np.arange(0, 1400, 200))
+            p.set_xlabel('Radius (AU)')
+            p.set_xlim(1e-1,1e2)
 
-        p.set_xlim(1e0,1e2)
-        p_[1].set_xlabel('Radius (AU)')
-        p.set_ylabel('Dust temperature (K)')
-        p.legend()
+        #p.set_ylabel('Dust temperature (K)')
+        p.set_ylabel(r'$T_{\rm dust}$ (K)')
 
     plt.subplots_adjust(hspace=0)
 #    plt.tight_layout()
