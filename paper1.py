@@ -350,6 +350,7 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
 
             # If not cached, calculate the radial averages and print  to tape
             else:
+                utils.print_(f'Profile "{curve}" for model {model} is not saved. Recalculating ...', True)
                 if curve == 'rt':
                     r_rt, rt = utils.radial_profile(
                         f'{prefix}/data/output_midplane.fits.gz',  
@@ -367,7 +368,7 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
                     utils.write_fits(tempfile, np.array([r_eos, eos]), overwrite=True)
                 elif curve == 'eos_rt':
                     r_eos_rt, eos_rt = utils.radial_profile(
-                        f'{prefix}/temp_offset_ccas/data/output_midplane.fits.gz', 
+                        f'{prefix}/temp_offset/data/output_midplane.fits.gz', 
                         return_radii=True, 
                         nthreads=nthreads, 
                     )
@@ -404,9 +405,8 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.set_ylim(-50, 1250)
             p.set_yticks(np.arange(0, 1400, 200))
             p.set_xlabel('Radius (AU)')
-            p.set_xlim(1e-1,1e2)
+            p.set_xlim(0.1,1e2)
 
-        #p.set_ylabel('Dust temperature (K)')
         p.set_ylabel(r'$T_{\rm dust}$ (K)')
 
     plt.subplots_adjust(hspace=0)

@@ -531,7 +531,7 @@ def radial_profile(
     if isinstance(data, (str,PosixPath)):
         data, hdr = fits.getdata(data, header=True)
         data = data[slices[0], slices[1]]
-        dr = hdr.get('CDELT1B') * u.au
+        dr = hdr.get('CDELT1B')
     else:
         dr = input('[radial_profile] Enter dr [AU]: ')
 
@@ -557,7 +557,7 @@ def radial_profile(
 
     # Generate the radial axis for plotting if required
     if return_radii or show or savefig:
-        radii = radii[::-1] 
+        radii = radii[::-1] * dr
 
     # Plot the radial profile if required
     if show or savefig is not None:
@@ -1327,3 +1327,50 @@ def get_polaris_temp(binfile="grid_temp.dat"):
                 struct.unpack("d", f.read(8))
 
         return temp
+
+
+def tau_surface(tau=1, filename='input_midplane_3d.fits.gz', show=True, savefig=None, verbose=True):
+    """ Compute and plot the surface with optical depth = 1 within a 3D 
+        density array from a FITS file.
+    """
+
+    # Read data
+    rho, hdr = fits.getdata(filename, header=True)
+    rho = rho[0] * (u.kg/u.m**3)
+
+    # Extinction opacity at 1.3 mm
+    kappa = 0.149765 * (u.m**2/u.kg)
+
+    # Surface density
+    dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
+    sigma_3d = np.cumsum(rho * dl, axis=0)
+    op_depth = (sigma_3d * kappa).value
+
+    # Iterate over isosurfaces
+    for i, surface in enumerate(op_depth):
+        dl = hdr['cdelt3b']*u.au
+        nsurf = op_depth.shape[0]
+        d_from_midplane = (i - nsurf/2) * dl 
+
+        print_(f'slice: {i}    ' +
+            f'max(tau): {surface.max():.2f}    ' +
+            f'at {d_from_midplane:.2f} from midplane', 
+            verbose
+        )
+
+        if surface.max() >= tau:
+            plt.imshow(surface.T, cmap='cividis')
+            plt.colorbar().set_label(r'Optical depth $(\tau)$')
+            plt.annotate(
+                f'At {d_from_midplane:.2f} from the midplane', 
+                (0.06, 0.94),
+                xycoords='axes fraction', 
+                fontsize=16, 
+                color='white', 
+            )    
+            plt.show()
+
+            return surface
+                
+
+    
