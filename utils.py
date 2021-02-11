@@ -1330,7 +1330,8 @@ def get_polaris_temp(binfile="grid_temp.dat"):
 
 
 def tau_surface(tau=1, filename='input_midplane_3d.fits.gz', show=True, savefig=None, verbose=True):
-    """ Compute and plot the surface with optical depth = 1 within a 3D 
+    """ 
+        Compute and plot the surface with optical depth = 1 within a 3D 
         density array from a FITS file.
     """
 
@@ -1358,6 +1359,10 @@ def tau_surface(tau=1, filename='input_midplane_3d.fits.gz', show=True, savefig=
             verbose
         )
 
+        # To do: iterate over pixels and store the tau=1 coordinates
+        # then return the density map with those coordinates.
+
+        # To do: plot the 3D tau=1 surface
         if surface.max() >= tau:
             plt.imshow(surface.T, cmap='cividis')
             plt.colorbar().set_label(r'Optical depth $(\tau)$')
@@ -1373,4 +1378,56 @@ def tau_surface(tau=1, filename='input_midplane_3d.fits.gz', show=True, savefig=
             return surface
                 
 
+@elapsed_time
+def plot3d(ar, bin_factor=[1,1,1], show=False, savefig=None, **kwargs):
+    """
+        Plot a 3D array using a 3D projection.
+    """
+    from mpl_toolkits.mplot3d import Axes3D
+
+    # If a filename is provided, read data from fits file
+    if isinstance(ar, (str, PosixPath)):
+        ar = fits.getdata(ar)
+        ar = ar.squeeze()
+
+    # Bin the array before plotting, if required
+    if bin_factor != [1,1,1]:
+        ## Turn into list if in case it comes as a tuple
+        #bin_factor = [i for i in bin_factor]
+        ## Assure factor is not negative
+        #for i in range(3):
+        #    bin_factor[i] = 1 if bin_factor[i] < 1 else bin_factor 
+
+        from astropy.nddata.blocks import block_reduce
+        print_(f'Original array shape: {ar.shape}', True)
+        ar = block_reduce(ar, bin_factor, func=np.nanmean)
+        print_(f'Binned array shape: {ar.shape}', True)
+
+    x = np.arange(ar.shape[0])[:, None, None]
+    y = np.arange(ar.shape[1])[None, :, None]
+    z = np.arange(ar.shape[2])[None, None, :]
+
+    x, y, z = np.broadcast_arrays(x, y, z)
+
+    c = np.tile(ar.ravel()[:, None], [1, 3]) 
+    c = np.linspace(ar.min(), ar.max(), ar.size)
+
+    try:
+        # Attempt to use Mayavi
+        from mayavi import mlab
+        mlab.plot3d(x, y, z)
     
+    except Exception as error:
+        mlab.close()
+        print_('Failed to plot with Mayavi. Falling back to Matplotlib', True, fail=True)
+        print_(f'Error: {error}', True, fail=True)
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        p = ax.scatter(x.ravel(), y.ravel(), z.ravel(), c=ar.ravel(), **kwargs)
+        fig.colorbar(p)
+        plt.tight_layout()
+
+    return plot_checkout(fig, show, savefig)
+
+
+ 
