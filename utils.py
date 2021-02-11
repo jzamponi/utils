@@ -1337,7 +1337,7 @@ def tau_surface(tau=1, filename='input_midplane_3d.fits.gz', show=True, savefig=
 
     # Read data
     rho, hdr = fits.getdata(filename, header=True)
-    rho = rho[0] * (u.kg/u.m**3)
+    rho = rho.squeeze() * (u.kg/u.m**3)
 
     # Extinction opacity at 1.3 mm
     kappa = 0.149765 * (u.m**2/u.kg)
@@ -1347,56 +1347,43 @@ def tau_surface(tau=1, filename='input_midplane_3d.fits.gz', show=True, savefig=
     sigma_3d = np.cumsum(rho * dl, axis=0)
     op_depth = (sigma_3d * kappa).value
 
-    # Iterate over isosurfaces
-    for i, surface in enumerate(op_depth):
-        dl = hdr['cdelt3b']*u.au
-        nsurf = op_depth.shape[0]
-        d_from_midplane = (i - nsurf/2) * dl 
 
-        print_(f'slice: {i}    ' +
-            f'max(tau): {surface.max():.2f}    ' +
-            f'at {d_from_midplane:.2f} from midplane', 
-            verbose
-        )
+    # Create a new 3D array to store the positions of the tau=1 points
+    coords = np.zeros(op_depth.shape)
 
-        # To do: iterate over pixels and store the tau=1 coordinates
-        # then return the density map with those coordinates.
+    # Iterate over every pixel. If tau>=1 set the cell to 1 and 0 otherwise
+    for ((z_i, z),(cz_i, cz)) in zip(enumerate(op_depth), enumerate(coords)):
+        for ((y_i, y),(cy_i, cy)) in zip(enumerate(z), enumerate(cz)):
+            for ((x_i, x),(cx_i, cx)) in zip(enumerate(y), enumerate(cy)):
+                if x >= 1:
+                    coords[z_i, y_i, x_i] = 1
+                else:
+                    coords[z_i, y_i, x_i] = 0
+                    
 
-        # To do: plot the 3D tau=1 surface
-        if surface.max() >= tau:
-            plt.imshow(surface.T, cmap='cividis')
-            plt.colorbar().set_label(r'Optical depth $(\tau)$')
-            plt.annotate(
-                f'At {d_from_midplane:.2f} from the midplane', 
-                (0.06, 0.94),
-                xycoords='axes fraction', 
-                fontsize=16, 
-                color='white', 
-            )    
-            plt.show()
+    # Implementation with pure NumPy (Less code and shorter time)
+#    coords[op_depth >= 1] = 1
+#    coords[op_depth < 1] = 2
 
-            return surface
-                
+    plot3d(coords, bin_factor=[2,2,2])  
+
+
 
 @elapsed_time
-def plot3d(ar, bin_factor=[1,1,1], show=False, savefig=None, **kwargs):
+def plot3d(ar, bin_factor=[1,1,1], verbose=True, show=True, savefig=None, **kwargs):
     """
         Plot a 3D array using a 3D projection.
     """
-    from mpl_toolkits.mplot3d import Axes3D
-
     # If a filename is provided, read data from fits file
     if isinstance(ar, (str, PosixPath)):
+        print_('Reading data from FITS file', verbose)
         ar = fits.getdata(ar)
         ar = ar.squeeze()
 
     # Bin the array before plotting, if required
     if bin_factor != [1,1,1]:
-        ## Turn into list if in case it comes as a tuple
-        #bin_factor = [i for i in bin_factor]
-        ## Assure factor is not negative
-        #for i in range(3):
-        #    bin_factor[i] = 1 if bin_factor[i] < 1 else bin_factor 
+        if isinstance(bin_factor, (int, float)):
+            bin_factor = [bin_factor, bin_factor, bin_factor]
 
         from astropy.nddata.blocks import block_reduce
         print_(f'Original array shape: {ar.shape}', True)
@@ -1406,8 +1393,9 @@ def plot3d(ar, bin_factor=[1,1,1], show=False, savefig=None, **kwargs):
     x = np.arange(ar.shape[0])[:, None, None]
     y = np.arange(ar.shape[1])[None, :, None]
     z = np.arange(ar.shape[2])[None, None, :]
-
+    
     x, y, z = np.broadcast_arrays(x, y, z)
+    x, y, z = x.ravel(), y.ravel(), z.ravel()
 
     c = np.tile(ar.ravel()[:, None], [1, 3]) 
     c = np.linspace(ar.min(), ar.max(), ar.size)
@@ -1415,19 +1403,25 @@ def plot3d(ar, bin_factor=[1,1,1], show=False, savefig=None, **kwargs):
     try:
         # Attempt to use Mayavi
         from mayavi import mlab
-        mlab.plot3d(x, y, z)
+        fig = mlab.figure(size=(1000,800))
+        mlab.pipeline.volume(
+            mlab.pipeline.scalar_field(ar),
+#            vmin=1e-11, 
+#            vmax=2e-9, 
+        )
+#        mlab.colorbar(orientation='horizontal', title=r'Dust density (g cm^-3)')
     
     except Exception as error:
+        # Otherwise Fall back to Matplotlib
+        from mpl_toolkits.mplot3d import Axes3D
         mlab.close()
-        print_('Failed to plot with Mayavi. Falling back to Matplotlib', True, fail=True)
-        print_(f'Error: {error}', True, fail=True)
+        print_('Failed to plot with Mayavi. Falling back to Matplotlib', verbose, fail=True)
+        print_(f'Error: {error}', verbose, fail=True)
         fig = plt.figure()
         ax = fig.gca(projection='3d')
-        p = ax.scatter(x.ravel(), y.ravel(), z.ravel(), c=ar.ravel(), **kwargs)
+        p = ax.scatter(x, y, z, c=ar.ravel(), **kwargs)
         fig.colorbar(p)
         plt.tight_layout()
+        return plot_checkout(fig, show, savefig)
 
-    return plot_checkout(fig, show, savefig)
-
-
- 
+    return tuple(map(np.ravel, (x,y,z,ar)))
