@@ -523,7 +523,7 @@ def radial_profile(
         # Copy data to avoid propagating NaNs in the original array
         d_copy = np.copy(data)
         mask = circular_mask(d_copy.shape, center, r, ring=True)
-        d_copy[~mask] = float("nan")
+        d_copy[~mask] = np.NaN
         averages[i] = func(d_copy)
         del d_copy
 
@@ -590,10 +590,10 @@ def stats(filename, slice=None, verbose=False):
 
     # Set the relevant quantities
     stat = {
-        "max": data.max(),
-        "mean": data.mean(),
-        "min": data.min(),
-        "std": data.std(),
+        "max": np.nanmax(data),
+        "mean": np.nanmean(data),
+        "min": np.nanmin(data),
+        "std": np.nanstd(data),
         "maxpos": maxpos(data),
         "minpos": minpos(data),
     }
@@ -605,7 +605,7 @@ def stats(filename, slice=None, verbose=False):
     return stat
 
 
-def maxpos(data):
+def maxpos(data, axis=None):
     """
     Return a tuple with the coordinates of a N-dimensional array.
     """
@@ -616,10 +616,10 @@ def maxpos(data):
     # Remove empty axes
     data = np.squeeze(data)
 
-    return np.unravel_index(data.argmax(), data.shape)
+    return np.unravel_index(np.nanargmax(data, axis=axis), data.shape)
 
 
-def minpos(data):
+def minpos(data, axis=None):
     """
     Return a tuple with the coordinates of a N-dimensional array.
     """
@@ -630,7 +630,7 @@ def minpos(data):
     # Remove empty axes
     data = np.squeeze(data)
 
-    return np.unravel_index(data.argmin(), data.shape)
+    return np.unravel_index(np.nanargmin(data, axis=None), data.shape)
 
 
 def add_comment(filename, comment):
@@ -762,13 +762,10 @@ def plot_map(
     except Exception as e:
         print_(f'Not able to add scale bar. Error: {e}', verbose=True, fail=True)
 
-    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
-        fig.save(savefig)
-
     # Delete the temporary file created to get rid of extra dimensions
     if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
 
-    return fig
+    return plot_checkout(fig, show, savefig)
 
 
 @elapsed_time
@@ -997,10 +994,7 @@ def polarization_map(
     if show:
         plt.show()
 
-    if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
-        fig.save(savefig)
-
-    return fig
+    return plot_checkout(fig, show, savefig)
 
 
 def imsmooth(filename, bmaj, bmin):
@@ -1268,9 +1262,8 @@ def horizontal_cuts(
     plt.ylabel(ylabel_)
     plt.xlim(-0.35, 0.35)
 
-    plot_checkout(fig, show, savefig)
+    return plot_checkout(fig, show, savefig)
 
-    return fig
 
 
 def get_polaris_temp(binfile="grid_temp.dat"):
@@ -1329,96 +1322,191 @@ def get_polaris_temp(binfile="grid_temp.dat"):
         return temp
 
 
-def tau_surface(tau=1, filename='input_midplane_3d.fits.gz', show=True, savefig=None, verbose=True):
+@elapsed_time
+def tau_surface(
+    densfile='dust_density_3d.fits.gz', 
+    tempfile='gas_temperature_3d.fits.gz', 
+    tau=1, 
+    bin_factor=[1,1,1], 
+    render='temperature', 
+    plot2D=True, 
+    plot3D=False, 
+    show=True, 
+    savefig=None, 
+    verbose=True
+):
     """ 
         Compute and plot the surface with optical depth = 1 within a 3D 
         density array from a FITS file.
     """
+    from mayavi import mlab
+    from astropy.nddata.blocks import block_reduce
+    from astropy.convolution import convolve, convolve_fft, Gaussian2DKernel
 
     # Read data
-    rho, hdr = fits.getdata(filename, header=True)
-    rho = rho.squeeze() * (u.kg/u.m**3)
-
-    # Extinction opacity at 1.3 mm
-    kappa = 0.149765 * (u.m**2/u.kg)
-
-    # Surface density
-    dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
-    sigma_3d = np.cumsum(rho * dl, axis=0)
-    op_depth = (sigma_3d * kappa).value
-
-    # Create a new 3D array to store the positions of the tau=1 points
-    coords = np.zeros(op_depth.shape)
-
-    # Set to 1 only cells where tau >= 1 and 0 otherwise. Like a boolean mask.
-    coords[op_depth >= tau] = 1
-    coords[op_depth < 1] = 0
-
-    return coords
-
-
-@elapsed_time
-def plot3d(ar, bin_factor=[1,1,1], verbose=True, show=True, savefig=None, **kwargs):
-    """
-        Plot a 3D array using a 3D projection.
-    """
-    from astropy.nddata.blocks import block_reduce
-
-    # If a filename is provided, read data from fits file
-    if isinstance(ar, (str, PosixPath)):
-        print_('Reading data from FITS file', verbose)
-        ar = fits.getdata(ar)
-        ar = ar.squeeze()
+    print_('Reading data from FITS file', verbose)
+    rho = fits.getdata(densfile).squeeze() * (u.kg/u.m**3)
+    temp = fits.getdata(tempfile).squeeze()
+    hdr = fits.getheader(densfile)
 
     # Bin the array down before plotting, if required
     if bin_factor != [1,1,1]:
         if isinstance(bin_factor, (int, float)):
             bin_factor = [bin_factor, bin_factor, bin_factor]
 
-        print_(f'Original array shape: {ar.shape}', True)
-        tau = block_reduce(tau_surface(ar), bin_factor, func=np.nanmean)
-        ar = block_reduce(ar, bin_factor, func=np.nanmean)
-        print_(f'Binned array shape: {ar.shape}', True)
+        print_(f'Original array shapes: {rho.shape}', True)
 
-    # To do: I think the following might be shortened with np.meshgrid
-    # but I haven't tried.
-    x = np.arange(ar.shape[0])[:, None, None]
-    y = np.arange(ar.shape[1])[None, :, None]
-    z = np.arange(ar.shape[2])[None, None, :]
-    x, y, z = np.broadcast_arrays(x, y, z)
-    x, y, z = x.ravel(), y.ravel(), z.ravel()
+        print_(f'Binning density grid ...', True)
+        rho = block_reduce(rho, bin_factor, func=np.nanmean)
 
-    try:
-        # Attempt to use Mayavi
-        from mayavi import mlab
-        fig = mlab.figure(size=(1000,800), bgcolor=(1,1,1), fgcolor=(0,0,0))
-        #densplot = mlab.pipeline.volume(
-        #    mlab.pipeline.scalar_field(ar),
-        densplot = mlab.contour3d(
-            np.log10(ar), 
-            #vmin=1e-15, 
-            #vmax=2e-9, 
-            opacity=.5, 
-        )
-        tauplot = mlab.contour3d(
-            tau, 
-            colormap='black-white', 
-            opacity=.3, 
-        )
-        dcb = mlab.colorbar(densplot, orientation='horizontal', title=r'log(Dust density (g cm^-3))')
+        print_(f'Binning temperature grid ...', True)
+        temp = block_reduce(temp, bin_factor, func=np.nanmean)
+
+        print_(f'Binned array shapes: {rho.shape}', True)
+
+    # Extinction opacity at 1.3 and 3 mm
+    kappa_1mm = 0.149765 * (u.m**2/u.kg)
+    kappa_3mm = 0.058061 * (u.m**2/u.kg)
+
+    # Surface density
+    dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
+    sigma_3d = np.cumsum(rho * dl, axis=0)
+    op_depth_1mm = (sigma_3d * kappa_1mm).value
+    op_depth_3mm = (sigma_3d * kappa_3mm).value
+    rho = rho.value
+
+    # Create a new 3D array to store the positions of the tau=value points
+    tau_coords_1mm = np.copy(op_depth_1mm)
+    tau_coords_3mm = np.copy(op_depth_3mm)
+
+    # Set to 1 only cells where tau >= 1 and 0 otherwise. Like a boolean mask.
+    tau_coords_1mm[op_depth_1mm >= 1] = 1
+    tau_coords_1mm[op_depth_1mm < 1] = 0
+    tau_coords_3mm[op_depth_3mm >= 1] = 1
+    tau_coords_3mm[op_depth_3mm < 1] = 0
+
+    if plot2D:
+        # Plot the 2D temperature projections at the tau=1 surface
+        fig2D, p = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))
+
+        # 1) This way iterates over every cell and stops right after it finds 
+        # the first tau >= 1 cell. It is very slow.
+        # Create a new 3D array to store the positions of the tau=1 points
+#        temp3D_1mm = np.zeros(temp.shape)
+#        temp3D_3mm = np.zeros(temp.shape)
+#
+#        # Iterate over every pixel. If tau>=1 the temperature from that cell only
+#        for z_i, z in enumerate(op_depth_1mm):
+#            for y_i, y in enumerate(z):
+#                for x_i, x in enumerate(y):
+#                    if x >= 1:
+#                        temp3D_1mm[z_i, y_i, x_i] = temp[z_i, y_i, x_i]
+#                        break
+#
+#        for z_i, z in enumerate(op_depth_3mm):
+#            for y_i, y in enumerate(z):
+#                for x_i, x in enumerate(y):
+#                    if x >= 1:
+#                        temp3D_3mm[z_i, y_i, x_i] = temp[z_i, y_i, x_i]
+#                        break
+
+        # 2) This one works, but it'll give you more cells in the outskirts
+        # because there are more tau~1 cells, then you'll have high Temp.
+#        temp3D_1mm = np.where(np.round(op_depth_1mm, 1) == 1, temp, 0)
+#        temp3D_3mm = np.where(np.round(op_depth_3mm, 1) == 1, temp, 0)
+#        T_tau1_1mm = convolve_fft(np.sum(temp3D_1mm, axis=0).T, Gaussian2DKernel(82,50,-88))
+#        T_tau1_3mm = convolve_fft(np.sum(temp3D_3mm, axis=0).T, Gaussian2DKernel(34,32,79))
+
+        # 3) This is to attempt having only the surface where tau = min(tau > 1)
+        op_thick_1mm = np.where(op_depth_1mm < 1, np.NaN, op_depth_1mm)
+        op_thick_3mm = np.where(op_depth_3mm < 1, np.NaN, op_depth_3mm)
+        #op_thick_1mm = np.nanmin(op_thick_1mm, axis=0)
+        #op_thick_3mm = np.nanmin(op_thick_3mm, axis=0)
+        return op_thick_1mm
     
-    except Exception as error:
-        # Otherwise Fall back to Matplotlib
-        from mpl_toolkits.mplot3d import Axes3D
-        mlab.close()
-        print_('Failed to plot with Mayavi. Falling back to Matplotlib', verbose, fail=True)
-        print_(f'Error: {error}', verbose, fail=True)
-        if False:
-            fig = plt.figure()
-            ax = fig.gca(projection='3d')
-            p = ax.scatter(x, y, z, c=ar.ravel(), cmap='cividis', **kwargs)
-            fig.colorbar(p)
-            plt.tight_layout()
-        return plot_checkout(fig, show, savefig)
+        temp3D_1mm = np.copy(temp)
+        temp3D_3mm = np.copy(temp)
+        temp3D_1mm[op_thick_1mm == np.NaN] = 0
+        temp3D_3mm[op_thick_3mm == np.NaN] = 0
+        T_tau1_1mm = np.nansum(temp3D_1mm, axis=0).T
+        T_tau1_3mm = np.nansum(temp3D_3mm, axis=0).T
+        #T_tau1_1mm = convolve_fft(T_tau1_1mm, Gaussian2DKernel(82,50,-88))
+        #T_tau1_3mm = convolve_fft(T_tau1_3mm, Gaussian2DKernel(34,32,79))
 
-    return tuple(map(np.ravel, (x,y,z,ar)))
+        # Plot the 3D temperature surface, to see if it is a volume or a layer
+        fig3d = mlab.figure(size=(1200,900), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
+        plot2d = mlab.contour3d(op_thick_1mm, opacity=0.5)
+        mlab.outline()
+        mlab.axes()
+        mlab.colorbar(plot2d)
+ 
+        # Plot the 2D count of non-zero cells along the line of sight
+#        p1 = p[0].imshow((temp3D_1mm != 0).sum(axis=0))
+#        p2 = p[1].imshow((temp3D_3mm != 0).sum(axis=0))
+#        fig2D.colorbar(p1, ax=p[0], orientation='horizontal').set_label('Number of non-zero cells')
+#        fig2D.colorbar(p2, ax=p[1], orientation='horizontal').set_label('Number of non-zero cells')
+        p1 = p[0].imshow(T_tau1_1mm, cmap='magma')
+        p2 = p[1].imshow(T_tau1_3mm, cmap='magma')
+        fig2D.colorbar(p1, ax=p[0], orientation='horizontal').set_label('Dust Temperature (K)')
+        fig2D.colorbar(p2, ax=p[1], orientation='horizontal').set_label('Dust Temperature (K)')
+        p[0].annotate(r'$\lambda = 1.3$ mm', xy=(0.15, 0.85), xycoords='axes fraction', size=20, color='white')
+        p[1].annotate(r'$\lambda = 3$ mm', xy=(0.15, 0.85), xycoords='axes fraction', size=20, color='white')
+        plt.tight_layout()
+        plt.show()
+
+        #return temp3D_1mm
+        return op_thick_1mm
+
+    if plot3D:
+        # Set a plane to 1, to illustrate the observer position
+        # Note: assumes the first dimension in tau_coords.shape is the Z-axis
+        tau_coords_1mm[0] = 1
+
+        # To do: I think the following might be shortened with np.meshgrid
+        # but I haven't tried.
+        x = np.arange(rho.shape[0])[:, None, None]
+        y = np.arange(rho.shape[1])[None, :, None]
+        z = np.arange(rho.shape[2])[None, None, :]
+        x, y, z = np.broadcast_arrays(x, y, z)
+        x, y, z = x.ravel(), y.ravel(), z.ravel()
+
+        if show:
+            if render in ['d', 'dens', 'density']:
+                render = {'render': np.log10(rho), 'label': r'log(Dust density (kg m^-3))'} 
+            elif render in ['t', 'temp', 'temperature']:
+                render = {'render': temp, 'label': r'Dust Temperature (K)'} 
+
+            fig = mlab.figure(size=(1500,1200), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
+            rendplot = mlab.contour3d(
+                render['render'], 
+                opacity=.3, 
+                transparent=True, 
+                colormap='coolwarm', 
+                extent=[-50, 50, -50, 50, -50, 50], 
+            )
+            tauplot_1mm = mlab.contour3d(
+                tau_coords_1mm, 
+                contours=[0,1], 
+                colormap='black-white', 
+                extent=[-50, 50, -50, 50, -50, 50], 
+                opacity=0.2, 
+            )
+            tauplot_3mm = mlab.contour3d(
+                tau_coords_3mm, 
+                contours=[0,1], 
+                colormap='Accent', 
+                opacity=0.2, 
+                extent=[-50, 50, -50, 50, -50, 50], 
+            )
+            figcb = mlab.colorbar(
+                rendplot, 
+                orientation='horizontal', 
+                title=render['label'],
+            )
+            mlab.outline()
+            mlab.axes()
+            mlab.xlabel('X (AU)')
+            mlab.ylabel('Y (AU)')
+            mlab.zlabel('Z (AU)')
+
+        return tau_coords_1mm
