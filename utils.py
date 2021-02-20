@@ -1389,62 +1389,28 @@ def tau_surface(
         # Plot the 2D temperature projections at the tau=1 surface
         fig2D, p = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))
 
-        # 1) This way iterates over every cell and stops right after it finds 
-        # the first tau >= 1 cell. It is very slow.
-        # Create a new 3D array to store the positions of the tau=1 points
-#        temp3D_1mm = np.zeros(temp.shape)
-#        temp3D_3mm = np.zeros(temp.shape)
-#
-#        # Iterate over every pixel. If tau>=1 the temperature from that cell only
-#        for z_i, z in enumerate(op_depth_1mm):
-#            for y_i, y in enumerate(z):
-#                for x_i, x in enumerate(y):
-#                    if x >= 1:
-#                        temp3D_1mm[z_i, y_i, x_i] = temp[z_i, y_i, x_i]
-#                        break
-#
-#        for z_i, z in enumerate(op_depth_3mm):
-#            for y_i, y in enumerate(z):
-#                for x_i, x in enumerate(y):
-#                    if x >= 1:
-#                        temp3D_3mm[z_i, y_i, x_i] = temp[z_i, y_i, x_i]
-#                        break
+        # Set all tau < 1 regions to a high number
+        op_thick_1mm = np.where(op_depth_1mm < 1, op_depth_1mm.max(), op_depth_1mm)
+        op_thick_3mm = np.where(op_depth_3mm < 1, op_depth_3mm.max(), op_depth_3mm)
 
-        # 2) This one works, but it'll give you more cells in the outskirts
-        # because there are more tau~1 cells, then you'll have high Temp.
-#        temp3D_1mm = np.where(np.round(op_depth_1mm, 1) == 1, temp, 0)
-#        temp3D_3mm = np.where(np.round(op_depth_3mm, 1) == 1, temp, 0)
-#        T_tau1_1mm = convolve_fft(np.sum(temp3D_1mm, axis=0).T, Gaussian2DKernel(82,50,-88))
-#        T_tau1_3mm = convolve_fft(np.sum(temp3D_3mm, axis=0).T, Gaussian2DKernel(34,32,79))
-
-        # 3) This is to attempt having only the surface where tau = min(tau > 1)
-        op_thick_1mm = np.where(op_depth_1mm < 1, np.NaN, op_depth_1mm)
-        op_thick_3mm = np.where(op_depth_3mm < 1, np.NaN, op_depth_3mm)
-        #op_thick_1mm = np.nanmin(op_thick_1mm, axis=0)
-        #op_thick_3mm = np.nanmin(op_thick_3mm, axis=0)
-        return op_thick_1mm
+        # Find the position of the minimum for tau > 1
+        min_tau_pos_1mm = np.apply_along_axis(np.argmin, 0, op_thick_1mm).squeeze()
+        min_tau_pos_3mm = np.apply_along_axis(np.argmin, 0, op_thick_3mm).squeeze()
     
-        temp3D_1mm = np.copy(temp)
-        temp3D_3mm = np.copy(temp)
-        temp3D_1mm[op_thick_1mm == np.NaN] = 0
-        temp3D_3mm[op_thick_3mm == np.NaN] = 0
-        T_tau1_1mm = np.nansum(temp3D_1mm, axis=0).T
-        T_tau1_3mm = np.nansum(temp3D_3mm, axis=0).T
-        #T_tau1_1mm = convolve_fft(T_tau1_1mm, Gaussian2DKernel(82,50,-88))
-        #T_tau1_3mm = convolve_fft(T_tau1_3mm, Gaussian2DKernel(34,32,79))
+        T_tau1_1mm = np.zeros(temp[0].shape)
+        T_tau1_3mm = np.zeros(temp[0].shape)
 
-        # Plot the 3D temperature surface, to see if it is a volume or a layer
-        fig3d = mlab.figure(size=(1200,900), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
-        plot2d = mlab.contour3d(op_thick_1mm, opacity=0.5)
-        mlab.outline()
-        mlab.axes()
-        mlab.colorbar(plot2d)
- 
-        # Plot the 2D count of non-zero cells along the line of sight
-#        p1 = p[0].imshow((temp3D_1mm != 0).sum(axis=0))
-#        p2 = p[1].imshow((temp3D_3mm != 0).sum(axis=0))
-#        fig2D.colorbar(p1, ax=p[0], orientation='horizontal').set_label('Number of non-zero cells')
-#        fig2D.colorbar(p2, ax=p[1], orientation='horizontal').set_label('Number of non-zero cells')
+        # Fill the 2D arrays with the temp. at the position of tau=1
+        for i in range(min_tau_pos_1mm.shape[0]):
+            for j in range(min_tau_pos_1mm.shape[1]):
+                T_tau1_1mm[i,j] = temp[min_tau_pos_1mm[i,j], i, j]
+                T_tau1_3mm[i,j] = temp[min_tau_pos_3mm[i,j], i, j]
+        
+        # Convolve the array with the beam from the observations at 1.3 & 3 mm
+        T_tau1_1mm = convolve_fft(T_tau1_1mm.T, Gaussian2DKernel(82/2,50/2,-88))
+        T_tau1_3mm = convolve_fft(T_tau1_3mm.T, Gaussian2DKernel(34/2,32/2,79))
+
+        # Plot the 2D temperature at the tau=1 surface
         p1 = p[0].imshow(T_tau1_1mm, cmap='magma')
         p2 = p[1].imshow(T_tau1_3mm, cmap='magma')
         fig2D.colorbar(p1, ax=p[0], orientation='horizontal').set_label('Dust Temperature (K)')
