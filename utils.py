@@ -35,7 +35,7 @@ class Observation:
         self.data, self.header = fits.getdata(
             home / f"phd/polaris/sourceB_{lam}.fits", header=True
         )
-
+        
     def rescale(self, factor):
         self.data = factor * self.data
 
@@ -52,6 +52,7 @@ class Observation:
 class Header:
     """ Handles header transformations. """
     # TO DO: bring the function  set_hdr_to_iras16293() into this object
+    # and also the as_namedtuple feature from the Observation class
     def __init__(self, hdr):
         self.hdr = hdr
 
@@ -1331,8 +1332,6 @@ def tau_surface(
     render='temperature', 
     plot2D=True, 
     plot3D=False, 
-    show=True, 
-    savefig=None, 
     verbose=True
 ):
     """ 
@@ -1375,16 +1374,6 @@ def tau_surface(
     op_depth_3mm = (sigma_3d * kappa_3mm).value
     rho = rho.value
 
-    # Create a new 3D array to store the positions of the tau=value points
-    tau_coords_1mm = np.copy(op_depth_1mm)
-    tau_coords_3mm = np.copy(op_depth_3mm)
-
-    # Set to 1 only cells where tau >= 1 and 0 otherwise. Like a boolean mask.
-    tau_coords_1mm[op_depth_1mm >= 1] = 1
-    tau_coords_1mm[op_depth_1mm < 1] = 0
-    tau_coords_3mm[op_depth_3mm >= 1] = 1
-    tau_coords_3mm[op_depth_3mm < 1] = 0
-
     if plot2D:
         # Plot the 2D temperature projections at the tau=1 surface
         fig2D, p = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))
@@ -1406,13 +1395,24 @@ def tau_surface(
                 T_tau1_1mm[i,j] = temp[min_tau_pos_1mm[i,j], i, j]
                 T_tau1_3mm[i,j] = temp[min_tau_pos_3mm[i,j], i, j]
         
-        # Convolve the array with the beam from the observations at 1.3 & 3 mm
-        T_tau1_1mm = convolve_fft(T_tau1_1mm.T, Gaussian2DKernel(82/2,50/2,-88))
-        T_tau1_3mm = convolve_fft(T_tau1_3mm.T, Gaussian2DKernel(34/2,32/2,79))
+        # Convolve the array with the beam from the observations at 1.3 and 3 mm
+        def fwhm_to_std(obs):
+            bmaj = obs.header['bmaj']*u.deg.to(u.rad) * 141*u.pc.to(u.au) / hdr['cdelt1b'] 
+            bmin = obs.header['bmin']*u.deg.to(u.rad) * 141*u.pc.to(u.au) / hdr['cdelt1b'] 
+            bpa = obs.header['bpa']
+            std_x = bmaj / np.sqrt(8 * np.log(2))
+            std_y = bmin / np.sqrt(8 * np.log(2))
+            return std_x, std_y, bpa
+            
+        std_x, std_y, bpa = fwhm_to_std(Observation('1.3mm'))
+        std_x, std_y, bpa = fwhm_to_std(Observation('3mm'))
+
+        T_tau1_1mm = convolve_fft(T_tau1_1mm, Gaussian2DKernel(std_x, std_y, bpa))
+        T_tau1_3mm = convolve_fft(T_tau1_3mm, Gaussian2DKernel(std_x, std_y, bpa))
 
         # Plot the 2D temperature at the tau=1 surface
-        p1 = p[0].imshow(T_tau1_1mm, cmap='magma')
-        p2 = p[1].imshow(T_tau1_3mm, cmap='magma')
+        p1 = p[0].imshow(T_tau1_1mm.T, cmap='magma', vmax=550)
+        p2 = p[1].imshow(T_tau1_3mm.T, cmap='magma', vmax=750)
         fig2D.colorbar(p1, ax=p[0], orientation='horizontal').set_label('Dust Temperature (K)')
         fig2D.colorbar(p2, ax=p[1], orientation='horizontal').set_label('Dust Temperature (K)')
         p[0].annotate(r'$\lambda = 1.3$ mm', xy=(0.15, 0.85), xycoords='axes fraction', size=20, color='white')
@@ -1420,10 +1420,17 @@ def tau_surface(
         plt.tight_layout()
         plt.show()
 
-        #return temp3D_1mm
-        return op_thick_1mm
-
     if plot3D:
+        # Create a new 3D array to store the positions of the tau=value points
+        tau_coords_1mm = np.copy(op_depth_1mm)
+        tau_coords_3mm = np.copy(op_depth_3mm)
+
+        # Set to 1 only cells where tau >= 1 and 0 otherwise. Like a boolean mask.
+        tau_coords_1mm[op_depth_1mm >= 1] = 1
+        tau_coords_1mm[op_depth_1mm < 1] = 0
+        tau_coords_3mm[op_depth_3mm >= 1] = 1
+        tau_coords_3mm[op_depth_3mm < 1] = 0
+
         # Set a plane to 1, to illustrate the observer position
         # Note: assumes the first dimension in tau_coords.shape is the Z-axis
         tau_coords_1mm[0] = 1
@@ -1436,43 +1443,42 @@ def tau_surface(
         x, y, z = np.broadcast_arrays(x, y, z)
         x, y, z = x.ravel(), y.ravel(), z.ravel()
 
-        if show:
-            if render in ['d', 'dens', 'density']:
-                render = {'render': np.log10(rho), 'label': r'log(Dust density (kg m^-3))'} 
-            elif render in ['t', 'temp', 'temperature']:
-                render = {'render': temp, 'label': r'Dust Temperature (K)'} 
+        if render in ['d', 'dens', 'density']:
+            render = {'render': np.log10(rho), 'label': r'log(Dust density (kg m^-3))'} 
+        elif render in ['t', 'temp', 'temperature']:
+            render = {'render': temp, 'label': r'Dust Temperature (K)'} 
 
-            fig = mlab.figure(size=(1500,1200), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
-            rendplot = mlab.contour3d(
-                render['render'], 
-                opacity=.3, 
-                transparent=True, 
-                colormap='coolwarm', 
-                extent=[-50, 50, -50, 50, -50, 50], 
-            )
-            tauplot_1mm = mlab.contour3d(
-                tau_coords_1mm, 
-                contours=[0,1], 
-                colormap='black-white', 
-                extent=[-50, 50, -50, 50, -50, 50], 
-                opacity=0.2, 
-            )
-            tauplot_3mm = mlab.contour3d(
-                tau_coords_3mm, 
-                contours=[0,1], 
-                colormap='Accent', 
-                opacity=0.2, 
-                extent=[-50, 50, -50, 50, -50, 50], 
-            )
-            figcb = mlab.colorbar(
-                rendplot, 
-                orientation='horizontal', 
-                title=render['label'],
-            )
-            mlab.outline()
-            mlab.axes()
-            mlab.xlabel('X (AU)')
-            mlab.ylabel('Y (AU)')
-            mlab.zlabel('Z (AU)')
+        fig = mlab.figure(size=(1500,1200), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
+        rendplot = mlab.contour3d(
+            render['render'], 
+            opacity=.3, 
+            transparent=True, 
+            colormap='coolwarm', 
+            extent=[-50, 50, -50, 50, -50, 50], 
+        )
+        tauplot_1mm = mlab.contour3d(
+            tau_coords_1mm, 
+            contours=[0,1], 
+            colormap='black-white', 
+            extent=[-50, 50, -50, 50, -50, 50], 
+            opacity=0.2, 
+        )
+        tauplot_3mm = mlab.contour3d(
+            tau_coords_3mm, 
+            contours=[0,1], 
+            colormap='Accent', 
+            opacity=0.2, 
+            extent=[-50, 50, -50, 50, -50, 50], 
+        )
+        figcb = mlab.colorbar(
+            rendplot, 
+            orientation='horizontal', 
+            title=render['label'],
+        )
+        mlab.outline()
+        mlab.axes()
+        mlab.xlabel('X (AU)')
+        mlab.ylabel('Y (AU)')
+        mlab.zlabel('Z (AU)')
 
         return tau_coords_1mm
