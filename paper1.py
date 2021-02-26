@@ -5,6 +5,7 @@
 	- Figure 4: Dust temperature radial profiles for Tgas, Protostellar heating and combined.
 	- Figure 5: Horizontal cuts for Bo's disk and Ilee's disk.
 	- Figure 6: Simulated observations at 3mm, 1.3mm and spectral index.
+    - Figure 7: Dust temperature at the tau = 1 surface
     Figsize two-column: 18cm x 5.5cm = 3*2.36in x 2.17in
 """
 import os
@@ -95,11 +96,11 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
     # Set the global path
     if 'bo' in model:
         filename = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc'
-        density_ticks = [-19, -17, -15, -13, -11]
+        density_ticks = [1e-19, 1e-17, 1e-15, 1e-13, 1e-11]
         temperature_ticks = [10, 30, 50, 70, 90, 110, 130, 150, 170, 190]
     elif 'ilee' in model: 
         filename = home/'phd/ilees_disk/results/dust_emission/temp_eos/sg'
-        density_ticks = [-14, -13, -12, -11, -10]
+        density_ticks = [1e-14, 1e-13, 1e-12, 1e-11, 1e-10]
         temperature_ticks = [100, 300, 500, 700, 900]
 
     # Read the data
@@ -111,9 +112,9 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
     dens = {p: d*(u.kg*u.m**-3).to(u.g*u.cm**-3) for (p,d) in dens.items()}
 
     # Zoom in the maps
-    dens['faceon'] = np.log10(dens['faceon'][300:700,300:700]).T
+    dens['faceon'] = dens['faceon'][300:700,300:700].T
     temp['faceon'] = temp['faceon'][300:700,300:700].T
-    dens['edgeon'] = np.log10(dens['edgeon'][450:550,300:700])
+    dens['edgeon'] = dens['edgeon'][450:550,300:700]
     temp['edgeon'] = temp['edgeon'][450:550,300:700]
 
     # Plot using APLPy
@@ -137,7 +138,7 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
         [p.show_colorscale(cmap='heat') for p in [tf, te]]
         [p.show_colorscale(cmap='seaborn') for p in [df, de]]
         [p.add_colorbar(location='top') for p in [df, tf]]
-        df.colorbar.set_axis_label_text(r'$n_{\rm gas}$ (g cm$^{-3}$)')
+        df.colorbar.set_axis_label_text(r'$\rho_{\rm gas}$ (g cm$^{-3}$)')
         tf.colorbar.set_axis_label_text(r'$T_{\rm gas}$ (K)')
         [p.axis_labels.hide() for p in [df, tf, de, te]]
         [p.tick_labels.hide() for p in [df, tf, de, te]]
@@ -173,15 +174,16 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
         max_d = None
         max_t = None if model == 'bo' else 900
 
-        df = p[0,0].imshow(dens['faceon'], interpolation='bicubic', vmin=min_d, vmax=max_d, cmap='cividis')
-        tf = p[0,1].imshow(temp['faceon'], interpolation='bicubic', vmin=min_t, vmax=max_t, cmap='Spectral_r')
-        de = p[1,0].imshow(dens['edgeon'], interpolation='bicubic', vmin=min_d, vmax=max_d, cmap='cividis')
-        te = p[1,1].imshow(temp['edgeon'], interpolation='bicubic', vmin=min_t, vmax=max_t, cmap='Spectral_r')
+        plt.rcParams['image.interpolation'] = 'bicubic'
+        df = p[0,0].imshow(dens['faceon'], norm=LogNorm(vmin=min_d, vmax=max_d), cmap='cividis')
+        tf = p[0,1].imshow(temp['faceon'], vmin=min_t, vmax=max_t, cmap='Spectral_r')
+        de = p[1,0].imshow(dens['edgeon'], norm=LogNorm(vmin=min_d, vmax=max_d), cmap='cividis')
+        te = p[1,1].imshow(temp['edgeon'], vmin=min_t, vmax=max_t, cmap='Spectral_r')
         
         # Add colorbars
         df_cb = fig.colorbar(de, ax=p[1,0], pad=0.01, orientation='horizontal', ticks=density_ticks)
         tf_cb = fig.colorbar(te, ax=p[1,1], pad=0.01, orientation='horizontal', ticks=temperature_ticks)
-        df_cb.set_label(r'$\log(n_{\rm gas})$ (g cm$^{-3}$)')
+        df_cb.set_label(r'$\rho\,_{\rm gas}$ (g cm$^{-3}$)')
         tf_cb.set_label(r'$T_{\rm gas}$ (K)')
 
         # Set the axes scales and labels 
@@ -425,13 +427,17 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     if model == 'bo':
         prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
         prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/'
+        angles = [0,40]
+
     elif model == 'ilee':
         prefix=home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/'
+        angles = [0, 10, 20, 30, 40]
+
     else:
         prefix=''
 
     fig = utils.horizontal_cuts(
-        angles=[0,40], 
+        angles=angles, 
         bright_temp=True, 
         add_obs=True, 
         axis=0, 
@@ -518,3 +524,57 @@ def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=No
     f3.ticks.set_linewidth(2)
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
+
+
+def tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None, figsize=(10,6)):
+    """ Figure 7:
+        Plot the 2D temperature at the tau=1 surface using APLPy
+    """
+
+    # Compute the 2D Tdust distribution at 1.3 and 3 mm
+    Td_tau1_1mm, Td_tau1_3mm = utils.tau_surface(
+        tau=tau, 
+        bin_factor=bin_factor, 
+        plot2D=True,
+        plot3D=False,
+        convolve=True,
+        verbose=True
+    )
+
+    # Select which tau surface to plot
+    temp2D = Td_tau1_1mm if lam == '1.3mm' else Td_tau1_3mm
+
+    utils.print_('Plotting using APLPy', True)
+
+    # Generate the figure with APLPy
+    fig = utils.plot_map(
+        np.flipud(temp2D), 
+        header=utils.Observation(lam).header, 
+        figsize=(8, 6),
+        bright_temp=False, 
+        cblabel=r'Dust temperature at $\tau_{\rm %s}=1$ (K)' % lam, 
+        scalebar=20*u.au, 
+        vmin=0, 
+        vmax=480 if lam == '1.3mm' else 742,
+        cmap='Spectral_r', 
+    )   
+
+    # Customize the plots        
+    simulation_extent = 0.709198230621132
+    img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
+    #fig.recenter(248.0942916667, -24.47550000000, radius=img_radius)
+    #fig.add_beam(edgecolor='white', facecolor='none', linewidth=1)
+    fig.scalebar.set_color('none')
+    fig.ticks.set_color('white')
+    fig.ticks.set_length(7)
+    fig.ticks.set_linewidth(2)
+    fig.add_label(0.79, 0.90, r'$\lambda =$ '+lam, relative=True, color='white', size=25)
+    fig.axis_labels.set_xtext('')
+    fig.tick_labels.hide_x()
+    fig.tick_labels.hide_y()
+    fig.axis_labels.hide_x()
+    fig.axis_labels.hide_y()
+
+    plt.tight_layout()
+ 
+    utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')

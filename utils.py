@@ -27,7 +27,7 @@ class color:
 class Observation:
     """ Contains data from real observations. """
 
-    def __init__(self, name="", lam="3mm"):
+    def __init__(self, lam, name=""):
         self.name = name
         self.data, self.header = fits.getdata(
             home / f"phd/polaris/sourceB_{lam}.fits", header=True
@@ -667,7 +667,6 @@ def edit_keyword(filename, key, value, verbose=True):
 def plot_map(
     filename,
     header=None,
-    savefig=None,
     rescale=1,
     cblabel=None,
     scalebar=50 * u.au,
@@ -677,6 +676,8 @@ def plot_map(
     figsize=None,
     vmin=None, 
     vmax=None, 
+    show=True, 
+    savefig=None, 
     *args,
     **kwargs,
 ):
@@ -695,7 +696,7 @@ def plot_map(
 
     # Remove non-celestial WCS
     if hdr.get("NAXIS") > 2:
-        tempfile = Path(filename).parent/'.temp_file.fits'
+        tempfile = '.temp_file.fits'
         write_fits(
             tempfile, 
             data=data.squeeze(), 
@@ -1247,16 +1248,19 @@ def horizontal_cuts(
 # </PATCH>
 
     # Customize the plot
-    if 'lmd2.4' in str(pwd):
+    if 'lmd2.4' in str(prefix):
         hole_size = 0.014  # arcsec = 2 AU @ 141pc
         hole_size = (2 * u.au.to(u.pc) / 141) * u.rad.to(u.arcsec)
         plt.axvline(-hole_size, lw=1, ls='-', alpha=0.5, color='grey')
         plt.axvline(hole_size, lw=1, ls='-', alpha=0.5, color='grey')
         plt.text(0.003, 0, 'Central hole', rotation=90, horizontalalignment='center')
+        plt.annotate('MHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
+    elif 'ilee' in str(prefix):
+        plt.annotate('HD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
+        plt.axvline(0, ls="--", lw=1, c="grey")
 
-    plt.axvline(0, ls="--", lw=1, c="grey")
-    plt.annotate('0.1" = 14AU', (0.75, 0.85), xycoords="axes fraction", fontsize=13)
-    plt.annotate(r'$\lambda=$ %s'%lam, (0.75, 0.77), xycoords="axes fraction", fontsize=13)
+    plt.annotate(r'$\lambda=$ %s'%lam, (0.70, 0.85), xycoords="axes fraction", fontsize=20)
+    plt.annotate('0.1" = 14AU', (0.73, 0.45), xycoords="axes fraction", fontsize=13)
     plt.legend(ncol=1, loc="upper left")
     plt.xlabel("Angular offset (arcseconds)")
     ylabel_ = r"$T_{\rm b}$ (K)" if bright_temp else r"mJy/beam"
@@ -1330,6 +1334,7 @@ def tau_surface(
     tau=1, 
     bin_factor=[1,1,1], 
     render='temperature', 
+    convolve=True, 
     plot2D=True, 
     plot3D=False, 
     verbose=True
@@ -1349,7 +1354,7 @@ def tau_surface(
     hdr = fits.getheader(densfile)
 
     # Bin the array down before plotting, if required
-    if bin_factor != [1,1,1]:
+    if bin_factor not in [1, [1,1,1]]:
         if isinstance(bin_factor, (int, float)):
             bin_factor = [bin_factor, bin_factor, bin_factor]
 
@@ -1375,9 +1380,6 @@ def tau_surface(
     rho = rho.value
 
     if plot2D:
-        # Plot the 2D temperature projections at the tau=1 surface
-        fig2D, p = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))
-
         # Set all tau < 1 regions to a high number
         op_thick_1mm = np.where(op_depth_1mm < 1, op_depth_1mm.max(), op_depth_1mm)
         op_thick_3mm = np.where(op_depth_3mm < 1, op_depth_3mm.max(), op_depth_3mm)
@@ -1386,14 +1388,14 @@ def tau_surface(
         min_tau_pos_1mm = np.apply_along_axis(np.argmin, 0, op_thick_1mm).squeeze()
         min_tau_pos_3mm = np.apply_along_axis(np.argmin, 0, op_thick_3mm).squeeze()
     
-        T_tau1_1mm = np.zeros(temp[0].shape)
-        T_tau1_3mm = np.zeros(temp[0].shape)
+        Td_tau1_1mm = np.zeros(temp[0].shape)
+        Td_tau1_3mm = np.zeros(temp[0].shape)
 
         # Fill the 2D arrays with the temp. at the position of tau=1
         for i in range(min_tau_pos_1mm.shape[0]):
             for j in range(min_tau_pos_1mm.shape[1]):
-                T_tau1_1mm[i,j] = temp[min_tau_pos_1mm[i,j], i, j]
-                T_tau1_3mm[i,j] = temp[min_tau_pos_3mm[i,j], i, j]
+                Td_tau1_1mm[i,j] = temp[min_tau_pos_1mm[i,j], i, j]
+                Td_tau1_3mm[i,j] = temp[min_tau_pos_3mm[i,j], i, j]
         
         # Convolve the array with the beam from the observations at 1.3 and 3 mm
         def fwhm_to_std(obs):
@@ -1404,22 +1406,16 @@ def tau_surface(
             std_y = bmin / np.sqrt(8 * np.log(2))
             return std_x, std_y, bpa
             
-        std_x, std_y, bpa = fwhm_to_std(Observation('1.3mm'))
-        std_x, std_y, bpa = fwhm_to_std(Observation('3mm'))
+        if convolve:
+            std_x, std_y, bpa = fwhm_to_std(Observation('1.3mm'))
+            Td_tau1_1mm = convolve_fft(Td_tau1_1mm, Gaussian2DKernel(std_x, std_y, bpa))
 
-        T_tau1_1mm = convolve_fft(T_tau1_1mm, Gaussian2DKernel(std_x, std_y, bpa))
-        T_tau1_3mm = convolve_fft(T_tau1_3mm, Gaussian2DKernel(std_x, std_y, bpa))
+            std_x, std_y, bpa = fwhm_to_std(Observation('3mm'))
+            Td_tau1_3mm = convolve_fft(Td_tau1_3mm, Gaussian2DKernel(std_x, std_y, bpa))
+        
+        return Td_tau1_1mm.T, Td_tau1_3mm.T
 
-        # Plot the 2D temperature at the tau=1 surface
-        p1 = p[0].imshow(T_tau1_1mm.T, cmap='magma', vmax=550)
-        p2 = p[1].imshow(T_tau1_3mm.T, cmap='magma', vmax=750)
-        fig2D.colorbar(p1, ax=p[0], orientation='horizontal').set_label('Dust Temperature (K)')
-        fig2D.colorbar(p2, ax=p[1], orientation='horizontal').set_label('Dust Temperature (K)')
-        p[0].annotate(r'$\lambda = 1.3$ mm', xy=(0.15, 0.85), xycoords='axes fraction', size=20, color='white')
-        p[1].annotate(r'$\lambda = 3$ mm', xy=(0.15, 0.85), xycoords='axes fraction', size=20, color='white')
-        plt.tight_layout()
-        plt.show()
-
+        
     if plot3D:
         # Create a new 3D array to store the positions of the tau=value points
         tau_coords_1mm = np.copy(op_depth_1mm)
