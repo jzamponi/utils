@@ -1337,6 +1337,7 @@ def tau_surface(
     convolve=True, 
     plot2D=True, 
     plot3D=False, 
+    savefig=None, 
     verbose=True
 ):
     """ 
@@ -1379,7 +1380,7 @@ def tau_surface(
     op_depth_3mm = (sigma_3d * kappa_3mm).value
     rho = rho.value
 
-    if plot2D:
+    if plot2D and not plot3D:
         # Set all tau < 1 regions to a high number
         op_thick_1mm = np.where(op_depth_1mm < 1, op_depth_1mm.max(), op_depth_1mm)
         op_thick_3mm = np.where(op_depth_3mm < 1, op_depth_3mm.max(), op_depth_3mm)
@@ -1417,19 +1418,9 @@ def tau_surface(
 
         
     if plot3D:
-        # Create a new 3D array to store the positions of the tau=value points
-        tau_coords_1mm = np.copy(op_depth_1mm)
-        tau_coords_3mm = np.copy(op_depth_3mm)
-
-        # Set to 1 only cells where tau >= 1 and 0 otherwise. Like a boolean mask.
-        tau_coords_1mm[op_depth_1mm >= 1] = 1
-        tau_coords_1mm[op_depth_1mm < 1] = 0
-        tau_coords_3mm[op_depth_3mm >= 1] = 1
-        tau_coords_3mm[op_depth_3mm < 1] = 0
-
         # Set a plane to 1, to illustrate the observer position
-        # Note: assumes the first dimension in tau_coords.shape is the Z-axis
-        tau_coords_1mm[0] = 1
+        midplane = np.zeros(np.shape(temp))
+        midplane[149] = 1
 
         # To do: I think the following might be shortened with np.meshgrid
         # but I haven't tried.
@@ -1447,34 +1438,39 @@ def tau_surface(
         fig = mlab.figure(size=(1500,1200), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
         rendplot = mlab.contour3d(
             render['render'], 
-            opacity=.3, 
-            transparent=True, 
-            colormap='coolwarm', 
-            extent=[-50, 50, -50, 50, -50, 50], 
-        )
-        tauplot_1mm = mlab.contour3d(
-            tau_coords_1mm, 
-            contours=[0,1], 
-            colormap='black-white', 
-            extent=[-50, 50, -50, 50, -50, 50], 
-            opacity=0.2, 
-        )
-        tauplot_3mm = mlab.contour3d(
-            tau_coords_3mm, 
-            contours=[0,1], 
-            colormap='Accent', 
-            opacity=0.2, 
-            extent=[-50, 50, -50, 50, -50, 50], 
+            contours=15, 
+            opacity=.5, 
+            colormap='inferno', 
+            vmin=75, 
+            vmax=400, 
         )
         figcb = mlab.colorbar(
             rendplot, 
-            orientation='horizontal', 
+            orientation='vertical', 
             title=render['label'],
         )
-        mlab.outline()
-        mlab.axes()
-        mlab.xlabel('X (AU)')
-        mlab.ylabel('Y (AU)')
-        mlab.zlabel('Z (AU)')
-
-        return tau_coords_1mm
+        tauplot_1mm = mlab.contour3d(
+            op_depth_1mm, 
+            contours=[1], 
+            color=(0, 1, 0), 
+            opacity=0.3, 
+        )
+        tauplot_3mm = mlab.contour3d(
+            op_depth_3mm,  
+            contours=[1], 
+            color=(0, 0, 1), 
+            opacity=0.3, 
+        )
+#        midplaneplot = mlab.contour3d(
+#            midplane, 
+#            contours=[1], 
+#            colormap='black-white', 
+#            opacity=0.3, 
+#        )
+#        mlab.outline(extent=[-50, 50, -50, 50, -50, 50])
+#        mlab.axes(nb_labels=3)
+#        mlab.xlabel('Z (AU)')
+#        mlab.ylabel('Y (AU)')
+#        mlab.zlabel('X (AU)')
+    
+        return op_depth_1mm, op_depth_3mm
