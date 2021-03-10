@@ -260,7 +260,8 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
     sca_p10 = plt.loglog(
         lam, 
         read_opac('1um','sca'), 
-        ls='--', color='tab:purple'
+        ls='--', 
+        color='tab:purple'
     )
 
     abs_p10 = plt.loglog(
@@ -273,7 +274,8 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
     sca_p10 = plt.loglog(
         lam, 
         read_opac('10um','sca'), 
-        ls='--', color='tab:red'
+        ls='--', 
+        color='tab:red'
     )
 
     abs_p100 = plt.loglog(
@@ -309,6 +311,7 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
 
     plt.tick_params(which='both', direction='in', left=True, right=True, bottom=True, top=True)
     plt.minorticks_on()
+    #plt.yticks(np.logspace(-3,  5, 9))
     plt.ylim(1e-3,1e5)
     plt.xlim(0.1,4e3)
 
@@ -396,14 +399,29 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.axvline(1.7, ls='--', c='tab:red', lw=1)
             p.text(0.3, 170, 'Central', c='tab:red', size=10)
             p.text(0.35, 150, 'hole', c='tab:red', size=10)
-            p.annotate('gravitationally\n stable model', (0.05,0.82), xycoords='axes fraction', weight='bold') 
+            p.annotate(
+                'gravitationally\n stable model', 
+                (0.05,0.82), 
+                xycoords='axes fraction', 
+                weight='bold'
+            ) 
             p.set_ylim(-10, 370)
             p.set_yticks(np.arange(0, 400, 50))
             p.legend(loc='upper right')
         elif model == 'ilee':
             p.axhline(1200, ls='--', c='tab:red', lw=1)
             p.text(11, 1100, 'Silicate sublimation', c='tab:red')
-            p.annotate('gravitationally\n unstable model', (0.05,0.82), xycoords='axes fraction', weight='bold') 
+            p.annotate(
+                'gravitationally\n unstable model', 
+                (0.05,0.82), 
+                xycoords='axes fraction', 
+                weight='bold'
+            ) 
+            # Plot the opacity from Bell & Lin 1994
+            p.semilogx(r_eos, 2e-4 * eos**2, ls='-.', 
+                alpha=0.8, color='black', label='Bell & Li (1994)'
+            )
+            p.legend()
             p.set_ylim(-50, 1250)
             p.set_yticks(np.arange(0, 1400, 200))
             p.set_xlabel('Radius (AU)')
@@ -421,7 +439,10 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     """ Figure 5 
         Plot cuts for both models at 1.3 and 3mm.    
 
-        TO DO: run the RT sim. for Bo's model with inc: 10, 20, 30 deg for 1.3 and 3mm
+        TO DO: 
+            - run the RT sim. for Bo's model with inc: 10, 20, 30 deg for 1.3 and 3mm
+            - Add a shaded region with the RMS to the obs.
+        
     """
     
     if model == 'bo':
@@ -474,7 +495,7 @@ def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=No
         subplot=[0.12, 0.05, 0.25, 0.9], 
     )
     f2 = utils.plot_map(
-        prefix/f'3mm/{incl}/data/3mm_{incl}_a10um_alma.fits', 
+        prefix/f'3mm/{incl}/data/3mm_{incl}_a10um_alma{"_nogap" if model=="bo" else ""}.fits', 
         figsize=None,
         stretch='linear', 
         scalebar=20*u.au, 
