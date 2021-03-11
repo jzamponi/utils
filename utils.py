@@ -293,14 +293,23 @@ def plot_opacity_file(filename='dust_mixture_001.dat', col='col16', show=True, s
     
     # Read datafile
     k = ascii.read(filename, data_start=10)
+    lam = k['col1']*u.m.to(u.micron)
+    opacity = k[col]*(u.kg/u.m**2).to(u.g/u.cm**2)
 
     # Initiliaze the figure
-    fig = plt.figure()
+    fig, p = plt.subplots(1, 1)
 
-    plt.loglog(k['col1']*u.m.to(u.micron), k[col]*(u.kg/u.m**2).to(u.g/u.cm**2), color='black')
-    plt.xlabel('Wavelength (microns)')
-    plt.ylabel(r'$\kappa$ (cm$^2$ g$^{-1}$)')
+    p.loglog(lam, opacity, color='black')
+    p.set_xlabel('Wavelength (microns)')
+    p.set_ylabel(r'$\kappa$ (cm$^2$ g$^{-1}$)')
+    p.set_xlim(lam.min(), lam.max())
     
+    # Create a twin x-axis to plot in black-body temperature
+    p_up = p.twiny()
+    p_up.loglog(2898 / lam, opacity, alpha=0) 
+    p_up.invert_xaxis()
+    p_up.set_xlabel('Black-body temperature (K)')
+
     return plot_checkout(fig, show, savefig)
 
 

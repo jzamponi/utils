@@ -409,6 +409,17 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.set_yticks(np.arange(0, 400, 50))
             p.legend(loc='upper right')
         elif model == 'ilee':
+            ### <PATCH>
+            # Temp by radiative heat. with opacity given by a single grain size of 100µm
+            p.semilogx(*utils.radial_profile(
+                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1cm/data/output_midplane.fits.gz',
+                return_radii=True, 
+                nthreads=True),
+                color='blue',
+                label='Radiative heat. with k(a=100um)'
+            )
+            ### <PATCH/>
+
             p.axhline(1200, ls='--', c='tab:red', lw=1)
             p.text(11, 1100, 'Silicate sublimation', c='tab:red')
             p.annotate(
@@ -417,11 +428,6 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
                 xycoords='axes fraction', 
                 weight='bold'
             ) 
-            # Plot the opacity from Bell & Lin 1994
-            p.semilogx(r_eos, 2e-4 * eos**2, ls='-.', 
-                alpha=0.8, color='black', label='Bell & Li (1994)'
-            )
-            p.legend()
             p.set_ylim(-50, 1250)
             p.set_yticks(np.arange(0, 1400, 200))
             p.set_xlabel('Radius (AU)')
