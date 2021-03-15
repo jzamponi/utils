@@ -62,8 +62,8 @@ class Bfield:
         # Read bfield data from Fits file
         self.data = fits.getdata(home / "phd/zeusTW/scripts/bfield_faceon.fits")
         # x,y-components from B field
-        self.x = data[2]
-        self.y = data[3]
+        self.x = self.data[2]
+        self.y = self.data[3]
 
     def get_strength(self, normalize=False):
         # Quadrature sum of B_x and B_y
@@ -291,10 +291,10 @@ def plot_opacity_file(filename='dust_mixture_001.dat', col='col16', show=True, s
     
     from astropy.io import ascii
     
-    # Read datafile
+    # Read opacity table
     k = ascii.read(filename, data_start=10)
     lam = k['col1']*u.m.to(u.micron)
-    opacity = k[col]*(u.kg/u.m**2).to(u.g/u.cm**2)
+    opacity = k[col]*(u.m**2/u.kg).to(u.cm**2/u.g)
 
     # Initiliaze the figure
     fig, p = plt.subplots(1, 1)
@@ -309,9 +309,80 @@ def plot_opacity_file(filename='dust_mixture_001.dat', col='col16', show=True, s
     p_up.loglog(2898 / lam, opacity, alpha=0) 
     p_up.invert_xaxis()
     p_up.set_xlabel('Black-body temperature (K)')
+    plt.tight_layout()
 
     return plot_checkout(fig, show, savefig)
 
+
+def plot_rosseland_opacity(filename='dust_mixture_001.dat', col='col16', domain='freq', show=True, savefig=None):
+    """ Plot the frequency-averaged Rosseland mean opacity 
+        for a given frequency-dependent opacity table.
+        
+        src: http://personal.psu.edu/rbc3/A534/lec6.pdf eq. 6.1.4
+    """
+    from astropy.io import ascii
+    
+    # Read opacity table
+    kappa = ascii.read(filename, data_start=10)
+    lam = kappa['col1']*u.m.to(u.cm)
+    k_lam = kappa[col]*(u.m**2/u.kg).to(u.cm**2/u.g)
+
+    # Clip the wavelength range below 1 or 10 micron, otherwise dB/dT diverges
+    lam = lam[50:]
+    k_lam = k_lam[50:]
+
+    # Rescale dust opacities to gas opacities
+    #k_lam *= 100
+
+    # Define constants & temperature range
+    h = c.h.cgs.value
+    c_ = c.c.cgs.value
+    k_B = c.k_B.cgs.value
+    temp = np.logspace(1, 3, k_lam.size)
+
+    # Derivative of the Planck func. w/r to T for a range of temperatures
+    k_ross = np.zeros(temp.shape)
+    for i, T in enumerate(temp):
+        if domain == 'lam':
+            # As a function of wavelength
+            dB_dT = ((2 * h**2 * c_**3) / (lam**6 * k_B * T**2)) * \
+                    np.exp((h * c_) / (lam * k_B * T)) / \
+                    (np.exp((h * c_) / (lam * k_B * T)) - 1)**2 
+
+            # Compute the Rosseland mean opacity
+            dlam = np.full(dB_dT.shape, fill_value=(lam[1] / lam[0]))
+            k_ross[i] = np.sum(dB_dT) / np.sum((1/k_lam) * dB_dT)
+
+        elif domain == 'freq':
+            # As a function of frequency
+            nu = c_ / lam
+
+            dB_dT = ((2 * h**2 * nu**4) / (c_**2 * k_B * T**2)) * \
+                    np.exp((h * nu) / (k_B * T)) / \
+                    (np.exp((h * nu) / (k_B * T)) - 1)**2 
+
+            # Compute the Rosseland mean opacity
+            dnu = np.full(dB_dT.shape, fill_value=(nu[1] / nu[0]))
+            k_ross[i] = np.sum(dB_dT * dnu) / np.sum((1/k_lam) * dB_dT * dnu)
+
+    # Initiliaze the figure
+    fig, p = plt.subplots(nrows=2, ncols=1, figsize=(6, 7))
+
+    # Plot the Rosseland opacity
+    p[1].loglog(temp, k_ross, color='black')
+    p[1].set_xlabel('Temperature (K)')
+    p[1].set_ylabel(r'$\bar{\kappa}$ (cm$^2$ g$_{\rm gas}^{-1}$)')
+    p[1].set_xlim(temp.min(), temp.max())
+
+    # Plot the frequency-dependent opacity
+    p[0].loglog(lam*u.cm.to(u.micron), k_lam, color='black')
+    p[0].set_xlabel('Wavelength (microns)')
+    p[0].set_ylabel(r'$\kappa_{\lambda}$ (cm$^2$ g$_{\rm gas}^{-1}$)')
+
+    plt.tight_layout()
+
+    return plot_checkout(fig, show, savefig)
+    
 
 @elapsed_time
 def create_cube(
@@ -422,6 +493,8 @@ def read_sph(snapshot="snap_541.dat"):
     rho = particle density [g/cm3]
     T = particle temperature [K]
     u = particle internal energy [ignore]
+    
+    outlier_index = 31330
     """
 
     with open(snapshot, "rb") as f:

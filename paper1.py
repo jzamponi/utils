@@ -412,11 +412,11 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             ### <PATCH>
             # Temp by radiative heat. with opacity given by a single grain size of 100µm
             p.semilogx(*utils.radial_profile(
-                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1cm/data/output_midplane.fits.gz',
+                f'/home/jz/phd/ilees_disk/results/opacity_test/single_10um/data/output_midplane.fits.gz',
                 return_radii=True, 
                 nthreads=True),
                 color='blue',
-                label='Radiative heat. with k(a=100um)'
+                label='Radiative heat. with k(a=10um)'
             )
             ### <PATCH/>
 
