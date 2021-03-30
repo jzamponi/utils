@@ -332,13 +332,13 @@ def plot_rosseland_opacity(filename='dust_mixture_001.dat', col='col16', domain=
     k_lam = k_lam[50:]
 
     # Rescale dust opacities to gas opacities
-    #k_lam *= 100
+    k_lam /= 100
 
     # Define constants & temperature range
     h = c.h.cgs.value
     c_ = c.c.cgs.value
     k_B = c.k_B.cgs.value
-    temp = np.logspace(1, 3, k_lam.size)
+    temp = np.logspace(1, 5, k_lam.size)
 
     # Derivative of the Planck func. w/r to T for a range of temperatures
     k_ross = np.zeros(temp.shape)
@@ -365,29 +365,34 @@ def plot_rosseland_opacity(filename='dust_mixture_001.dat', col='col16', domain=
             dnu = np.full(dB_dT.shape, fill_value=(nu[1] / nu[0]))
             k_ross[i] = np.sum(dB_dT * dnu) / np.sum((1/k_lam) * dB_dT * dnu)
 
-    # Initiliaze the figure
-    fig, p = plt.subplots(nrows=2, ncols=1, figsize=(6, 7))
+    if show:
+        # Initiliaze the figure
+        fig, p = plt.subplots(nrows=2, ncols=1, figsize=(6, 7))
 
-    # Plot the Rosseland opacity
-    p[1].loglog(temp, k_ross, color='black')
-    p[1].set_xlabel('Temperature (K)')
-    p[1].set_ylabel(r'$\bar{\kappa}$ (cm$^2$ g$_{\rm gas}^{-1}$)')
-    p[1].set_xlim(temp.min(), temp.max())
+        # Plot the frequency-dependent opacity
+        p[0].loglog(lam*u.cm.to(u.micron), k_lam, color='black')
+        p[0].set_xlabel('Wavelength (microns)')
+        p[0].set_ylabel(r'$\kappa_{\lambda}$ (cm$^2$ g$_{\rm gas}^{-1}$)')
 
-    # Plot the frequency-dependent opacity
-    p[0].loglog(lam*u.cm.to(u.micron), k_lam, color='black')
-    p[0].set_xlabel('Wavelength (microns)')
-    p[0].set_ylabel(r'$\kappa_{\lambda}$ (cm$^2$ g$_{\rm gas}^{-1}$)')
+        # Plot the Rosseland opacity
+        p[1].loglog(temp, k_ross, color='black')
+        p[1].set_xlabel('Temperature (K)')
+        p[1].set_ylabel(r'$\bar{\kappa}$ (cm$^2$ g$_{\rm gas}^{-1}$)')
+        p[1].set_xlim(temp.min(), temp.max())
 
-    plt.tight_layout()
+        plt.tight_layout()
 
-    return plot_checkout(fig, show, savefig)
+        return plot_checkout(fig, show, savefig)
+
+    else:
+        return temp, k_ross
     
 
 @elapsed_time
 def create_cube(
     filename="polaris_detector_nr0001.fits.gz",
     outfile="",
+    specmode='cont', 
     wcs="deg",
     spec_axis=False,
     stokes_axis=False,
@@ -398,6 +403,7 @@ def create_cube(
 ):
     """
     Retrieves data and header from filename and add necessary keywords to the cube.
+    Then adjust the header to match that of IRAS16293B ALMA observations and write out.
     NOTE: Wildcards are allowed by the infile argument. Thanks to glob.
     """
     from glob import glob
@@ -410,14 +416,27 @@ def create_cube(
         VERBOSE = verbose
 
     # Read data
-    data, hdr = fits.getdata(filename, header=True)
+    if specmode in ['cont', 'mfs']:
+        data, hdr = fits.getdata(filename, header=True)
+        # Takes care if single channel is used but also extra axes are wanted
+        if all([spec_axis, stokes_axis]):
+            I = np.array([[data[0][0]]])
+        elif any([spec_axis, stokes_axis]):
+            I = np.array([data[0][0]])
+        else:
+            I = data[0][0]
 
-    if all([spec_axis, stokes_axis]):
-        I = np.array([[data[0][0]]])
-    elif any([spec_axis, stokes_axis]):
-        I = np.array([data[0][0]])
-    else:
-        I = data[0][0]
+    elif specmode in ['line', 'cube']:
+        spec_axis = True
+        # Let filename expand wildcards
+        filename = glob(filename)
+        hdr = fits.getheader(filename[0])
+        map_shape = fits.getdata(filename[0])[0].shape
+        I = np.zeros(shape=(len(filename), *map_shape))
+        # If multiple channels, append each of 'em to a new cube
+        for i, f in enumerate(filename):
+            I[i] = fits.getdata(f)[0]
+
 
     # Edit the header to match the observation from IRAS16293B
     hdr = set_hdr_to_iras16293B(
@@ -694,9 +713,10 @@ def stats(filename, slice=None, verbose=False):
         "max": np.nanmax(data),
         "mean": np.nanmean(data),
         "min": np.nanmin(data),
-        "std": np.nanstd(data),
         "maxpos": maxpos(data),
         "minpos": minpos(data),
+        "std": np.nanstd(data),
+        "S/N": np.nanmax(data) / np.nanstd(data),
     }
 
     # Print statistics if verbose enabled
@@ -776,6 +796,7 @@ def plot_map(
     figsize=None,
     vmin=None, 
     vmax=None, 
+    contours=False, 
     show=True, 
     savefig=None, 
     *args,
@@ -814,8 +835,16 @@ def plot_map(
             bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
         )
 
+    # Store the peak emission
+    peak = np.max(data * rescale) if bright_temp else np.max(data)
+
     fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
     fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin)
+    
+    # Add contours if requested
+    if contours:
+        conts = fig.show_contour(colors='white', levels=8, returnlevels=True, alpha=0.5)
+        print_(f'contours: {conts}', True)
 
     # Auto set the colorbar label if not provided
     if cblabel is None and bright_temp:
@@ -1424,57 +1453,88 @@ def get_polaris_temp(binfile="grid_temp.dat"):
 def tau_surface(
     densfile='dust_density_3d.fits.gz', 
     tempfile='gas_temperature_3d.fits.gz', 
+    prefix='', 
     tau=1, 
     bin_factor=[1,1,1], 
     render='temperature', 
     convolve=True, 
     plot2D=True, 
     plot3D=False, 
+    cache=False, 
     savefig=None, 
-    to_csv=False, 
     verbose=True
 ):
     """ 
         Compute and plot the surface with optical depth = 1 within a 3D 
         density array from a FITS file.
     """
-    from mayavi import mlab
-    from astropy.nddata.blocks import block_reduce
-    from astropy.convolution import convolve, convolve_fft, Gaussian2DKernel
 
-    # Read data
-    print_('Reading data from FITS file', verbose)
-    rho = fits.getdata(densfile).squeeze() * (u.kg/u.m**3)
-    temp = fits.getdata(tempfile).squeeze()
-    hdr = fits.getheader(densfile)
+    # Prepend the prefix to the filenames
+    densfile = Path(prefix/Path(densfile))
+    tempfile = Path(prefix/Path(tempfile))
 
-    # Bin the array down before plotting, if required
-    if bin_factor not in [1, [1,1,1]]:
-        if isinstance(bin_factor, (int, float)):
-            bin_factor = [bin_factor, bin_factor, bin_factor]
+    # Load data from cache
+    tempfile_temp = prefix/Path('.temp_3d.fits')
+    tempfile_op1mm = prefix/Path('.tau1mm_3d.fits')
+    tempfile_op3mm = prefix/Path('.tau3mm_3d.fits')
 
-        print_(f'Original array shapes: {rho.shape}', True)
+    if  cache and \
+        os.path.exists(tempfile_temp) and \
+        os.path.exists(tempfile_op1mm) and \
+        os.path.exists(tempfile_op3mm) and \
+        bin_factor == fits.getheader(tempfile_temp)['binfactor']:        
 
-        print_(f'Binning density grid ...', True)
-        rho = block_reduce(rho, bin_factor, func=np.nanmean)
+        print_('Reading data from cache', verbose)
+        temp = fits.getdata(tempfile_temp)
+        op_depth_1mm = fits.getdata(tempfile_op1mm)
+        op_depth_3mm = fits.getdata(tempfile_op3mm)
+        print_(f'Data binned by a factor of {bin_factor}. Shape: {op_depth_3mm.shape}', verbose)
 
-        print_(f'Binning temperature grid ...', True)
-        temp = block_reduce(temp, bin_factor, func=np.nanmean)
+    # If not stored, read original data
+    else:
+        from astropy.nddata.blocks import block_reduce
 
-        print_(f'Binned array shapes: {rho.shape}', True)
+        print_('Reading data from FITS file', verbose)
+        rho = fits.getdata(densfile).squeeze() * (u.kg/u.m**3)
+        temp = fits.getdata(tempfile).squeeze()
+        hdr = fits.getheader(densfile)
 
-    # Extinction opacity at 1.3 and 3 mm
-    kappa_1mm = 0.149765 * (u.m**2/u.kg)
-    kappa_3mm = 0.058061 * (u.m**2/u.kg)
+        # Bin the array down before plotting, if required
+        if bin_factor not in [1, [1,1,1]]:
+            if isinstance(bin_factor, (int, float)):
+                bin_factor = [bin_factor, bin_factor, bin_factor]
 
-    # Surface density
-    dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
-    sigma_3d = np.cumsum(rho * dl, axis=0)
-    op_depth_1mm = (sigma_3d * kappa_1mm).value
-    op_depth_3mm = (sigma_3d * kappa_3mm).value
-    rho = rho.value
+            print_(f'Original array shape: {rho.shape}', verbose)
+
+            print_(f'Binning density grid ...', verbose)
+            rho = block_reduce(rho, bin_factor, func=np.nanmean)
+
+            print_(f'Binning temperature grid ...', verbose)
+            temp = block_reduce(temp, bin_factor, func=np.nanmean)
+
+            print_(f'Binned array shape: {rho.shape}', verbose)
+
+            # Extinction opacity at 1.3 and 3 mm
+            kappa_1mm = 0.149765 * (u.m**2/u.kg)
+            kappa_3mm = 0.058061 * (u.m**2/u.kg)
+
+            # Surface density
+            dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
+            sigma_3d = np.cumsum(rho * dl, axis=0)
+            op_depth_1mm = (sigma_3d * kappa_1mm).value
+            op_depth_3mm = (sigma_3d * kappa_3mm).value
+            rho = rho.value
+
+            # Cache the binned arrays for faster future access
+            hdr['binfactor'] = bin_factor[0]
+            write_fits(tempfile_temp, data=temp, header=hdr, verbose=True)  
+            write_fits(tempfile_op1mm, data=op_depth_1mm, header=hdr, verbose=True)  
+            write_fits(tempfile_op3mm, data=op_depth_3mm, header=hdr, verbose=True)  
+            
 
     if plot2D and not plot3D:
+        from astropy.convolution import convolve, convolve_fft, Gaussian2DKernel
+
         # Set all tau < 1 regions to a high number
         op_thick_1mm = np.where(op_depth_1mm < 1, op_depth_1mm.max(), op_depth_1mm)
         op_thick_3mm = np.where(op_depth_3mm < 1, op_depth_3mm.max(), op_depth_3mm)
@@ -1512,69 +1572,58 @@ def tau_surface(
 
         
     if plot3D:
+        from mayavi import mlab
+
+        fig = mlab.figure(size=(1500,1200), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
+
+        # Select the quantity to render: density or temperature
         if render in ['d', 'dens', 'density']:
-            render = {'render': np.log10(rho), 'label': r'log(Dust density (kg m^-3))'} 
+            render = {'render': rho, 'label': r'log(Dust density (kg m^-3))'} 
         elif render in ['t', 'temp', 'temperature']:
             render = {'render': temp, 'label': r'Dust Temperature (K)'} 
 
-        fig = mlab.figure(size=(1500,1200), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
+        # Filter the optical depth lying outside of a given temperature isosurface, 
+        # e.g., at T > 100 K.
+        op_depth_1mm[temp < 110] = 0
+        op_depth_3mm[temp < 110] = 0
+
+        # Draw a line in 3D space to indicate the position of the observer
+        midplane = np.zeros(np.shape(temp))
+        midplane[0:20, 125, 125] = 1
+
+        midplaneplot = mlab.contour3d(
+            midplane, 
+            contours=[3], 
+            colormap='black-white', 
+            opacity=1, 
+        )
+        # Plot the temperature
         rendplot = mlab.contour3d(
-            render['render'], 
-            contours=15, 
-            opacity=.5, 
+            temp, 
             colormap='inferno', 
-            vmin=75, 
+            opacity=.3, 
+            vmin=90, 
             vmax=400, 
+            contours=10, 
         )
         figcb = mlab.colorbar(
             rendplot, 
             orientation='vertical', 
             title=render['label'],
         )
+        # Plot optical depth at 3mm
         tauplot_1mm = mlab.contour3d(
             op_depth_1mm, 
             contours=[1], 
             color=(0, 1, 0), 
-            opacity=0.3, 
+            opacity=0.5, 
         )
+        # Plot optical depth at 1mm
         tauplot_3mm = mlab.contour3d(
             op_depth_3mm,  
             contours=[1], 
             color=(0, 0, 1), 
-            opacity=0.3, 
+            opacity=0.7, 
         )
-#        # Set a plane to 1, to illustrate the observer position
-#        midplane = np.zeros(np.shape(temp))
-#        midplane[149] = 1
-#
-#        midplaneplot = mlab.contour3d(
-#            midplane, 
-#            contours=[1], 
-#            colormap='black-white', 
-#            opacity=0.3, 
-#        )
-#        mlab.outline(extent=[-50, 50, -50, 50, -50, 50])
-#        mlab.axes(nb_labels=3)
-#        mlab.xlabel('Z (AU)')
-#        mlab.ylabel('Y (AU)')
-#        mlab.zlabel('X (AU)')
-    
-        # The following is used to plot with plotly. The goal is to embed
-        # this figure in web-based plot.
-        # x, y, z = np.mgrid[
-        #     -50:50:rho.shape[0]*1j, 
-        #     -50:50:rho.shape[0]*1j, 
-        #     -50:50:rho.shape[0]*1j
-        # ]
-        # webfig = go.Figure(data=go.Isosurface(
-        #     x=x.flatten(),
-        #     y=y.flatten(),
-        #     z=z.flatten(),
-        #     value=temp.flatten(),
-        #     isomin=75,
-        #     isomax=400,
-        #     caps=dict(x_show=False, y_show=False),
-        # ))
-        # webfig.show()
 
         return render['render'], op_depth_1mm, op_depth_3mm

@@ -3,9 +3,10 @@
 	- Figure 2: Density xy & zx projections of Bo's disk and Ilee's disk
 	- Figure 3: Dust opacities for several a_max with a silicate & graphite composition.
 	- Figure 4: Dust temperature radial profiles for Tgas, Protostellar heating and combined.
-	- Figure 5: Horizontal cuts for Bo's disk and Ilee's disk.
-	- Figure 6: Simulated observations at 3mm, 1.3mm and spectral index.
-    - Figure 7: Dust temperature at the tau = 1 surface
+	- Figure 5: Horizontal cuts for Bo's disk.
+	- Figure 6: Horizontal cuts for Ilee's disk.
+	- Figure 7: Simulated observations at 3mm, 1.3mm and spectral index.
+    - Figure 8: Dust temperature at the tau = 1 surface
     Figsize two-column: 18cm x 5.5cm = 3*2.36in x 2.17in
 """
 import os
@@ -31,6 +32,7 @@ def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
         scalebar=20*u.au, 
         vmin=0, 
         vmax=287, 
+        contours=True, 
         figure=fig,
         subplot=[0.12, 0.05, 0.25, 0.9], 
     )
@@ -41,6 +43,7 @@ def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
         scalebar=20*u.au, 
         vmin=0, 
         vmax=468, 
+        contours=True, 
         figure=fig,
         subplot=[0.40, 0.05, 0.25, 0.9], 
     )
@@ -55,6 +58,8 @@ def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
         figure=fig,
         subplot=[0.68, 0.05, 0.25, 0.9], 
     )
+
+    # Recenter the figures
     simulation_extent = 0.709198230621132
     img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
     #img_radius = (70*u.au.to(u.pc)/141)*u.rad.to(u.deg)
@@ -96,12 +101,8 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
     # Set the global path
     if 'bo' in model:
         filename = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc'
-        density_ticks = [1e-19, 1e-17, 1e-15, 1e-13, 1e-11]
-        temperature_ticks = [10, 30, 50, 70, 90, 110, 130, 150, 170, 190]
     elif 'ilee' in model: 
         filename = home/'phd/ilees_disk/results/dust_emission/temp_eos/sg'
-        density_ticks = [1e-14, 1e-13, 1e-12, 1e-11, 1e-10]
-        temperature_ticks = [100, 300, 500, 700, 900]
 
     # Read the data
     data, hdr = fits.getdata(filename/'amax10um/3mm/0deg/data/input_midplane.fits.gz', header=True)
@@ -168,17 +169,21 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
         # Setup the figure
         fig, p = plt.subplots(nrows=2, ncols=2, figsize=figsize, gridspec_kw=gridspec)
 
-        # Plot data
-        min_d = None
-        min_t = None
-        max_d = None
-        max_t = None if model == 'bo' else 900
+        # Set the plot scales
+        min_d = 1e-15
+        min_t = 8 if model == 'bo' else 80
+        max_d = 2e-10
+        max_t = None if model == 'bo' else None
+        density_ticks = [1e-15, 1e-14, 1e-13, 1e-12, 1e-11, 1e-10]
+        temperature_ticks = [1e1, 1e2] if model == 'bo' else [1e2, 1e3]
 
         plt.rcParams['image.interpolation'] = 'bicubic'
-        df = p[0,0].imshow(dens['faceon'], norm=LogNorm(vmin=min_d, vmax=max_d), cmap='cividis')
-        tf = p[0,1].imshow(temp['faceon'], vmin=min_t, vmax=max_t, cmap='Spectral_r')
-        de = p[1,0].imshow(dens['edgeon'], norm=LogNorm(vmin=min_d, vmax=max_d), cmap='cividis')
-        te = p[1,1].imshow(temp['edgeon'], vmin=min_t, vmax=max_t, cmap='Spectral_r')
+        cmap_d = 'BuPu'
+        cmap_t = 'inferno'
+        df = p[0,0].imshow(dens['faceon'], norm=LogNorm(vmin=min_d, vmax=max_d), cmap=cmap_d)
+        tf = p[0,1].imshow(temp['faceon'], norm=LogNorm(vmin=min_t, vmax=max_t), cmap=cmap_t)
+        de = p[1,0].imshow(dens['edgeon'], norm=LogNorm(vmin=min_d, vmax=max_d), cmap=cmap_d)
+        te = p[1,1].imshow(temp['edgeon'], norm=LogNorm(vmin=min_t, vmax=max_t), cmap=cmap_t)
         
         # Add colorbars
         df_cb = fig.colorbar(de, ax=p[1,0], pad=0.01, orientation='horizontal', ticks=density_ticks)
@@ -313,7 +318,7 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
     plt.minorticks_on()
     #plt.yticks(np.logspace(-3,  5, 9))
     plt.ylim(1e-3,1e5)
-    plt.xlim(0.1,4e3)
+    plt.xlim(1,4e3)
 
     plt.legend()
     plt.xlabel('Wavelength (microns)')
@@ -410,13 +415,36 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.legend(loc='upper right')
         elif model == 'ilee':
             ### <PATCH>
-            # Temp by radiative heat. with opacity given by a single grain size of 100µm
+            # Temp by radiative heat. with opacity given by single grain sizes
+            p.semilogx(*utils.radial_profile(
+                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1um/data/output_midplane.fits.gz',
+                return_radii=True, 
+                nthreads=True),
+                label='a=1um',
+            )
             p.semilogx(*utils.radial_profile(
                 f'/home/jz/phd/ilees_disk/results/opacity_test/single_10um/data/output_midplane.fits.gz',
                 return_radii=True, 
                 nthreads=True),
-                color='blue',
-                label='Radiative heat. with k(a=10um)'
+                label='a=10um',
+            )
+            p.semilogx(*utils.radial_profile(
+                f'/home/jz/phd/ilees_disk/results/opacity_test/single_100um/data/output_midplane.fits.gz',
+                return_radii=True, 
+                nthreads=True),
+                label='a=100um',
+            )
+            p.semilogx(*utils.radial_profile(
+                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1mm/data/output_midplane.fits.gz',
+                return_radii=True, 
+                nthreads=True),
+                label='a=1mm',
+            )
+            p.semilogx(*utils.radial_profile(
+                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1cm/data/output_midplane.fits.gz',
+                return_radii=True, 
+                nthreads=True),
+                label='a=1cm',
             )
             ### <PATCH/>
 
@@ -553,7 +581,7 @@ def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=No
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
-def tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None, figsize=(10,6)):
+def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None, figsize=(10,6)):
     """ Figure 7:
         Plot the 2D temperature at the tau=1 surface using APLPy
     """
@@ -561,6 +589,7 @@ def tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None, figs
     # Compute the 2D Tdust distribution at 1.3 and 3 mm
     Td_tau1_1mm, Td_tau1_3mm = utils.tau_surface(
         tau=tau, 
+        prefix=home/'phd/ilees_disk/results/dust_heating/sg/amax10um/temp_offset/data', 
         bin_factor=bin_factor, 
         plot2D=True,
         plot3D=False,
@@ -579,11 +608,11 @@ def tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None, figs
         header=utils.Observation(lam).header, 
         figsize=(8, 6),
         bright_temp=False, 
-        cblabel=r'Dust temperature at $\tau_{\rm %s}=1$ (K)' % lam, 
-        scalebar=20*u.au, 
+        cblabel=r'Dust temperature (K)', 
+        scalebar=20*u.au if lam=='1.3mm' else 130*u.au, 
         vmin=0, 
         vmax=480 if lam == '1.3mm' else 742,
-        cmap='Spectral_r', 
+        cmap='inferno', 
     )   
 
     # Customize the plots        
@@ -591,16 +620,20 @@ def tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None, figs
     img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
     #fig.recenter(248.0942916667, -24.47550000000, radius=img_radius)
     #fig.add_beam(edgecolor='white', facecolor='none', linewidth=1)
-    fig.scalebar.set_color('none')
     fig.ticks.set_color('white')
     fig.ticks.set_length(7)
     fig.ticks.set_linewidth(2)
     fig.add_label(0.79, 0.90, r'$\lambda =$ '+lam, relative=True, color='white', size=25)
+    fig.add_label(0.19, 0.90, r'Surface at', relative=True, color='white', size=25)
+    fig.add_label(0.12, 0.83, r'$\tau=1$', relative=True, color='white', size=25)
+    fig.scalebar.set_color('white')
+    fig.scalebar.set_label('20 AU')
     fig.axis_labels.set_xtext('')
     fig.tick_labels.hide_x()
     fig.tick_labels.hide_y()
     fig.axis_labels.hide_x()
     fig.axis_labels.hide_y()
+    fig.frame.set_linewidth(2)
 
     plt.tight_layout()
  
