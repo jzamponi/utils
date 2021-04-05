@@ -566,7 +566,7 @@ def fill_gap(
 
     # Read data
     d, hdr = fits.getdata(filename, header=True)
-    d = d[0][0]
+    d = d.squeeze()
     full = d
     gap = np.where(d[x1:x2, y1:y2] < threshold, d.max(), d[x1:x2, y1:y2])
     full[x1:x2, y1:y2] = gap
@@ -789,7 +789,7 @@ def plot_map(
     header=None,
     rescale=1,
     cblabel=None,
-    scalebar=50 * u.au,
+    scalebar=20 * u.au,
     cmap="magma",
     verbose=True,
     bright_temp=True,
@@ -874,7 +874,7 @@ def plot_map(
     # Frame and ticks
     fig.frame.set_color("black")
     fig.frame.set_linewidth(1.2)
-    fig.ticks.set_color("black")
+    fig.ticks.set_color('white' if cmap=='magma' else 'black')
     fig.ticks.set_linewidth(1.2)
     fig.ticks.set_length(6)
     fig.ticks.set_minor_frequency(5)
@@ -885,7 +885,7 @@ def plot_map(
         D = 141 * u.pc
         scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
         fig.add_scalebar(scalebar_ * u.arcsec)
-        fig.scalebar.set_color("grey")
+        fig.scalebar.set_color("white")
         fig.scalebar.set_corner("bottom right")
         fig.scalebar.set_font(size=23)
         fig.scalebar.set_linewidth(3)
@@ -1139,7 +1139,7 @@ def spectral_index(
     beta=False,
     use_aplpy=True,
     cmap="PuOr",
-    scalebar=30*u.au,
+    scalebar=20*u.au,
     vmin=None,
     vmax=None,
     figsize=None, 
@@ -1176,7 +1176,6 @@ def spectral_index(
             fig = plot_map(
                 index2file,
                 cblabel=r"$\beta$"+cblabel_freq if beta else r"$\alpha$"+cblabel_freq,
-                stretch='linear',
                 scalebar=scalebar,
                 cmap=cmap,
                 vmin=vmin,
@@ -1187,8 +1186,13 @@ def spectral_index(
                 *args, 
                 **kwargs
             )
-            fig.show_contour(index2file, colors="black", levels=[1.7, 2, 3])
-            fig.add_beam(facecolor='white', edgecolor='black', linewidth=3)
+            # Plot the beam ony if it is an ALMA simulated observation
+            if all(['alma' in [lam1_, lam2_]]): 
+                fig.show_contour(index2file, colors="black", levels=[1.7, 2, 3])
+                fig.add_beam(facecolor='white', edgecolor='black', linewidth=3)
+            else:
+                fig.show_contour(index2file, colors="black", levels=[2])
+
             if os.path.isfile(index2file): os.remove(index2file)
 
         except Exception as e:
@@ -1197,8 +1201,10 @@ def spectral_index(
             spectral_index(lam1_, lam2_, use_aplpy=False, show=show, savefig=savefig)
     else:
         fig = plt.figure(figsize=figsize)
+        index = np.flipud(index)
         plt.imshow(index, cmap=cmap, vmin=vmin, vmax=vmax)
         plt.colorbar(pad=0.01).set_label(r"$\alpha_{223-100 {\rm GHz}}$")
+        plt.contour(index, colors='black', levels=[2])
         plt.xticks([])
         plt.yticks([])
 
@@ -1265,7 +1271,7 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
 @elapsed_time
 def horizontal_cuts(
     angles,
-    add_obs=False,
+    add_obs=True,
     scale_obs=None,
     axis=0,
     lam="3mm",
@@ -1346,7 +1352,7 @@ def horizontal_cuts(
                 bmin=obs.header.get("bmin") * u.deg.to(u.arcsec),
                 bmaj=obs.header.get("bmaj") * u.deg.to(u.arcsec),
             )
-            print_(f'RMS: {rms}', True, bold=True)
+            print_(f'RMS: {rms} K', True, bold=True)
         plt.fill_between(obs.offset, obs.cut-rms, obs.cut+rms, alpha=0.5, color='grey')
 
     # Plot the cuts from the simulated observations for every inclination angle
@@ -1364,27 +1370,58 @@ def horizontal_cuts(
         plt.plot(
             offset,
             cut,
-            label=f"{angle} " + r"($T_{\rm dust}=T_{\rm gas}$)",
+            label=f"{angle} ", #+ r"($T_{\rm dust}=T_{\rm gas}$)",
             *args,
             **kwargs,
         )
 
     # Customize the plot
     if 'lmd2.4' in str(prefix):
-        hole_size = 0.014  # arcsec = 2 AU @ 141pc
-        hole_size = (2 * u.au.to(u.pc) / 141) * u.rad.to(u.arcsec)
-        plt.axvline(-hole_size, lw=1, ls='-', alpha=0.5, color='grey')
-        plt.axvline(hole_size, lw=1, ls='-', alpha=0.5, color='grey')
-        plt.text(0.003, 0, 'Central hole', rotation=90, horizontalalignment='center')
+        # Label the panel
         plt.annotate('MHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
+
+        # Annotate the central hole
+        plt.axvline(-0.007, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.axvline(0.007, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.007, x2=0.007, color='grey', alpha=0.05, zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.007, x2=0.007, color='grey', alpha=0.05, zorder=2)
+        plt.annotate(
+            text='Central\nhole', 
+            xy=(0.0, 200 if lam=='1.3mm' else 300), 
+            xytext=(0.1, 0.4), 
+            xycoords='data',
+            textcoords='axes fraction',
+            horizontalalignment='center', 
+            arrowprops=dict(arrowstyle="<|-", connectionstyle="angle3,angleA=0,angleB=-90"), 
+            fontsize=13, 
+        )
+        plt.ylim(0, 300 if lam=='1.3mm' else 480)
+
     elif 'ilee' in str(prefix):
+        # Label the panel
         plt.annotate('HD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
-        plt.axvline(0, ls="--", lw=1, c="grey")
+
+        # Annotate the region of aritifical viscosity
+        plt.axvline(-0.035, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.axvline(0.035, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.035, x2=0.035, color='grey', alpha=0.05, zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.035, x2=0.035, color='grey', alpha=0.05, zorder=2)
+        plt.annotate(
+            text='Extra heating\nfrom\nartificial viscosity', 
+            xy=(0.0, 350 if lam=='1.3mm' else 550), 
+            xytext=(0.17, 0.47), 
+            xycoords='data',
+            textcoords='axes fraction',
+            horizontalalignment='center', 
+            arrowprops=dict(arrowstyle="<|-", connectionstyle="angle3,angleA=0,angleB=-90"), 
+            fontsize=13, 
+        )
+        plt.ylim(0, 500 if lam=='1.3mm' else 780)
+        plt.xlabel("Angular offset (arcseconds)")
 
     plt.annotate(r'$\lambda=$ %s'%lam, (0.70, 0.85), xycoords="axes fraction", fontsize=20)
     plt.annotate('0.1" = 14AU', (0.73, 0.45), xycoords="axes fraction", fontsize=13)
     plt.legend(ncol=1, loc="upper left")
-    plt.xlabel("Angular offset (arcseconds)")
     ylabel_ = r"$T_{\rm b}$ (K)" if bright_temp else r"mJy/beam"
     plt.ylabel(ylabel_)
     plt.xlim(-0.35, 0.35)
@@ -1482,7 +1519,7 @@ def tau_surface(
         os.path.exists(tempfile_temp) and \
         os.path.exists(tempfile_op1mm) and \
         os.path.exists(tempfile_op3mm) and \
-        bin_factor == fits.getheader(tempfile_temp)['binfactor']:        
+        bin_factor == fits.getheader(tempfile_temp)['binning']:        
 
         print_('Reading data from cache', verbose)
         temp = fits.getdata(tempfile_temp)
@@ -1526,7 +1563,7 @@ def tau_surface(
             rho = rho.value
 
             # Cache the binned arrays for faster future access
-            hdr['binfactor'] = bin_factor[0]
+            hdr['binning'] = bin_factor[0]
             write_fits(tempfile_temp, data=temp, header=hdr, verbose=True)  
             write_fits(tempfile_op1mm, data=op_depth_1mm, header=hdr, verbose=True)  
             write_fits(tempfile_op3mm, data=op_depth_3mm, header=hdr, verbose=True)  
@@ -1584,8 +1621,8 @@ def tau_surface(
 
         # Filter the optical depth lying outside of a given temperature isosurface, 
         # e.g., at T > 100 K.
-        op_depth_1mm[temp < 110] = 0
-        op_depth_3mm[temp < 110] = 0
+        op_depth_1mm[temp < 30] = 0
+        op_depth_3mm[temp < 30] = 0
 
         # Draw a line in 3D space to indicate the position of the observer
         midplane = np.zeros(np.shape(temp))
@@ -1602,8 +1639,8 @@ def tau_surface(
             temp, 
             colormap='inferno', 
             opacity=.3, 
-            vmin=90, 
-            vmax=400, 
+#            vmin=90, 
+#            vmax=400, 
             contours=10, 
         )
         figcb = mlab.colorbar(
@@ -1627,3 +1664,48 @@ def tau_surface(
         )
 
         return render['render'], op_depth_1mm, op_depth_3mm
+
+
+def disk_mass(temp, flux, lam='1.3mm', bmin=None, bmaj=None, gdratio=100, d=141*u.pc):
+    """ Calculate the disk gas mass using the observational approach, 
+        e.g., assuming emission is optically thin and that temperature 
+        is uniform across the disk (see Evans et al. 2017, eq. 2). 
+
+        Example:
+            utils.disk_mass(100*u.K, 8*u.mJy/u.beam, lam='3mm')
+    """
+    from astropy.modeling import models
+    
+    # If bmin & bmaj not provided, obtain from the Observation obj based on lam
+    if None in [bmin, bmaj]:
+        obs = Observation(lam)
+        bmin = obs.header['bmin'] * u.deg.to(u.arcsec)
+        bmaj = obs.header['bmaj'] * u.deg.to(u.arcsec)
+    
+    # Extinction opacity at 1.3 and 3 mm in cgs
+    kappa = {
+        '1.3mm': 1.49765 * (u.cm**2 / u.g), 
+        '3mm': 0.58061 * (u.cm**2 / u.g)
+    }
+
+    # Obtain the beam area and convert to sr
+    d = d.to(u.cm)
+    fwhm_to_sigma = 1 / np.sqrt(8 * np.log(2))
+    bmin = bmin * fwhm_to_sigma * u.arcsec 
+    bmaj = bmaj * fwhm_to_sigma * u.arcsec 
+    beam_area = 2 * np.pi * bmaj * bmin
+
+    # Turn the flux from Jy/beam to Jy/sr
+    flux = flux.to(u.erg * u.s**-1 * u.cm**-2 * u.Hz**-1)
+ 
+    # Compute the specific Black-Body function at a given temperature
+    lam_ = 1.3*u.mm if lam == '1.3mm' else 3*u.mm
+    B = models.BlackBody(temp.to(u.K))
+    B = B(lam_)
+
+    # Compute the gas mass (everything is now in cgs)
+    mass = (gdratio * flux.value * d**2) / (kappa[lam] * B.value)
+
+    return mass.to(u.Msun)
+
+

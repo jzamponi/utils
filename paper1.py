@@ -393,20 +393,22 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             eos = fit(r_eos, eos)
             eos_rt = fit(r_eos_rt, eos_rt)
 
-        p.semilogx(r_rt, rt, ls=':', c='black', label=r'$T_{\rm dust} =$ Star heating')
-        p.semilogx(r_eos, eos, ls='--', c='black', label=r'$T_{\rm dust} = T_{\rm gas}$')
-        p.semilogx(r_eos_rt, eos_rt, ls='-', c='black', 
+        # Plot the curves
+        p.plot(r_rt, rt, ls=':', c='black', label=r'$T_{\rm dust} =$ Star heating')
+        p.plot(r_eos, eos, ls='--', c='black', label=r'$T_{\rm dust} = T_{\rm gas}$')
+        p.plot(r_eos_rt, eos_rt, ls='-', c='black', 
             label=r'$T_{\rm dust} = T_{\rm gas}$ and'+'\n\tstar heating'
         )
 
+        # Customize both panels
         plt.rcParams['font.size'] = 12
         if model == 'bo':
             p.axvline(1.7, ls='--', c='tab:red', lw=1)
-            p.text(0.3, 170, 'Central', c='tab:red', size=10)
-            p.text(0.35, 150, 'hole', c='tab:red', size=10)
+            #p.text(0.3, 170, 'Central', c='tab:red', size=10)
+            #p.text(0.35, 150, 'hole', c='tab:red', size=10)
             p.annotate(
-                'gravitationally\n stable model', 
-                (0.05,0.82), 
+                'MHD model', 
+                (0.10,0.82), 
                 xycoords='axes fraction', 
                 weight='bold'
             ) 
@@ -415,56 +417,55 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.legend(loc='upper right')
         elif model == 'ilee':
             ### <PATCH>
-            # Temp by radiative heat. with opacity given by single grain sizes
-            p.semilogx(*utils.radial_profile(
-                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1um/data/output_midplane.fits.gz',
-                return_radii=True, 
-                nthreads=True),
-                label='a=1um',
-            )
-            p.semilogx(*utils.radial_profile(
-                f'/home/jz/phd/ilees_disk/results/opacity_test/single_10um/data/output_midplane.fits.gz',
-                return_radii=True, 
-                nthreads=True),
-                label='a=10um',
-            )
-            p.semilogx(*utils.radial_profile(
-                f'/home/jz/phd/ilees_disk/results/opacity_test/single_100um/data/output_midplane.fits.gz',
-                return_radii=True, 
-                nthreads=True),
-                label='a=100um',
-            )
-            p.semilogx(*utils.radial_profile(
-                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1mm/data/output_midplane.fits.gz',
-                return_radii=True, 
-                nthreads=True),
-                label='a=1mm',
-            )
-            p.semilogx(*utils.radial_profile(
-                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1cm/data/output_midplane.fits.gz',
-                return_radii=True, 
-                nthreads=True),
-                label='a=1cm',
-            )
-            ### <PATCH/>
+#            # Temp by radiative heat. with opacity given by single grain sizes
+#            p.semilogx(*utils.radial_profile(
+#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1um/data/output_midplane.fits.gz',
+#                return_radii=True, 
+#                nthreads=True),
+#                label='a=1um',
+#            )
+#            p.semilogx(*utils.radial_profile(
+#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_10um/data/output_midplane.fits.gz',
+#                return_radii=True, 
+#                nthreads=True),
+#                label='a=10um',
+#            )
+#            p.semilogx(*utils.radial_profile(
+#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_100um/data/output_midplane.fits.gz',
+#                return_radii=True, 
+#                nthreads=True),
+#                label='a=100um',
+#            )
+#            p.semilogx(*utils.radial_profile(
+#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1mm/data/output_midplane.fits.gz',
+#                return_radii=True, 
+#                nthreads=True),
+#                label='a=1mm',
+#            )
+#            p.semilogx(*utils.radial_profile(
+#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1cm/data/output_midplane.fits.gz',
+#                return_radii=True, 
+#                nthreads=True),
+#                label='a=1cm',
+#            )
+#            ### <PATCH/>
 
             p.axhline(1200, ls='--', c='tab:red', lw=1)
-            p.text(11, 1100, 'Silicate sublimation', c='tab:red')
+            p.text(25, 1100, 'Silicate sublimation', c='tab:red')
             p.annotate(
-                'gravitationally\n unstable model', 
-                (0.05,0.82), 
+                'HD model', 
+                (0.10,0.82), 
                 xycoords='axes fraction', 
                 weight='bold'
             ) 
             p.set_ylim(-50, 1250)
             p.set_yticks(np.arange(0, 1400, 200))
             p.set_xlabel('Radius (AU)')
-            p.set_xlim(0.1,1e2)
+            p.set_xlim(0.0,50)
 
         p.set_ylabel(r'$T_{\rm dust}$ (K)')
 
     plt.subplots_adjust(hspace=0)
-#    plt.tight_layout()
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
@@ -482,7 +483,7 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     if model == 'bo':
         prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
         prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/'
-        angles = [0,40]
+        angles = [0, 10, 20, 30, 40]
 
     elif model == 'ilee':
         prefix=home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/'
@@ -638,3 +639,29 @@ def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None,
     plt.tight_layout()
  
     utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
+
+
+def plot_toomre_parameter(show=True, savefig=None, figsize=(6,4)):
+    """ Plot the radially averaged  Toomre parameter for both disk models. """
+    
+    q_ilee = ascii.read(home/'phd/plots/paper1/interpolated_Toomre_Q.txt')
+    #q_bo = ascii.read(home/'phd/plots/paper1/toomre_q_mhd_model.txt')
+    
+    fig = plt.figure(figsize=figsize)
+
+    plt.plot(*q_ilee.values(), color='black', label='HD model')
+    #plt.plot(*q_ilee.values(), color='black', label='MHD model')
+
+    plt.ylabel('Toomre Q parameter')
+    plt.xlabel('Radius (AU)')
+
+    plt.ylim(1.35, 2.4)
+    plt.xlim(0, 25)
+
+    return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
+
+
+def plot_mass_estimates(show=True, savefig=None, figsize=(6,4)):
+    """ Plot the observational mass estimates of the HD model. """
+    
+    pass
