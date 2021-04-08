@@ -12,6 +12,7 @@
 import os
 from astropy.io import ascii, fits
 import astropy.units as u
+import astropy.constants as c
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
@@ -415,41 +416,8 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.set_ylim(-10, 370)
             p.set_yticks(np.arange(0, 400, 50))
             p.legend(loc='upper right')
-        elif model == 'ilee':
-            ### <PATCH>
-#            # Temp by radiative heat. with opacity given by single grain sizes
-#            p.semilogx(*utils.radial_profile(
-#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1um/data/output_midplane.fits.gz',
-#                return_radii=True, 
-#                nthreads=True),
-#                label='a=1um',
-#            )
-#            p.semilogx(*utils.radial_profile(
-#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_10um/data/output_midplane.fits.gz',
-#                return_radii=True, 
-#                nthreads=True),
-#                label='a=10um',
-#            )
-#            p.semilogx(*utils.radial_profile(
-#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_100um/data/output_midplane.fits.gz',
-#                return_radii=True, 
-#                nthreads=True),
-#                label='a=100um',
-#            )
-#            p.semilogx(*utils.radial_profile(
-#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1mm/data/output_midplane.fits.gz',
-#                return_radii=True, 
-#                nthreads=True),
-#                label='a=1mm',
-#            )
-#            p.semilogx(*utils.radial_profile(
-#                f'/home/jz/phd/ilees_disk/results/opacity_test/single_1cm/data/output_midplane.fits.gz',
-#                return_radii=True, 
-#                nthreads=True),
-#                label='a=1cm',
-#            )
-#            ### <PATCH/>
 
+        elif model == 'ilee':
             p.axhline(1200, ls='--', c='tab:red', lw=1)
             p.text(25, 1100, 'Silicate sublimation', c='tab:red')
             p.annotate(
@@ -481,8 +449,8 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     """
     
     if model == 'bo':
-        prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
         prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/'
+        prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
         angles = [0, 10, 20, 30, 40]
 
     elif model == 'ilee':
@@ -549,6 +517,7 @@ def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=No
         scalebar=20*u.au,
         figure=fig,
         subplot=[0.68, 0.05, 0.25, 0.9], 
+        return_fig=True, 
     )
     simulation_extent = 0.709198230621132
     img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
@@ -641,27 +610,117 @@ def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None,
     utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
-def plot_toomre_parameter(show=True, savefig=None, figsize=(6,4)):
-    """ Plot the radially averaged  Toomre parameter for both disk models. """
+@utils.elapsed_time
+def plot_toomre_parameter(show=True, savefig=None, figsize=(5,4)):
+    """ Plot the radially averaged Toomre parameter for both disk models. """
     
-    q_ilee = ascii.read(home/'phd/plots/paper1/interpolated_Toomre_Q.txt')
-    #q_bo = ascii.read(home/'phd/plots/paper1/toomre_q_mhd_model.txt')
+    from astropy.nddata import block_reduce
     
+    # Read the tabulated Q values for the HD model from file 
+    q_hd = ascii.read(home/'phd/plots/paper1/interpolated_Toomre_Q.txt')
+
+    # Compute the Q paramter for the MHD disk:
+    # Read the data
+    prefix = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/amax10um/data/'
+    dens, hdr = fits.getdata(
+        prefix/'dust_density_3d.fits.gz',  
+        header=True
+    )
+    tgas = fits.getdata(
+        prefix/'gas_temperature_3d.fits.gz',  
+    )
+    vphi, hdr_v = fits.getdata(
+        prefix/'input_midplane.fits.gz',  
+        header=True
+    )
+    # Extract the temp from the midplane
+    tgas = tgas[250]
+
+    # Extract the azimuthal velocity from all the midplanes (slice 11), 
+    # and compute the keplerian epicyclic frequency kappa = V_phi/r.
+    vphi = vphi[11, 0] * (u.m/u.s).to(u.cm/u.s)
+    dr = hdr_v['cdelt1b'] * u.au.to(u.cm)
+    x, y = np.meshgrid(
+        np.linspace(-dr*vphi.shape[0], dr*vphi.shape[0], vphi.shape[0]), 
+        np.linspace(-dr*vphi.shape[0], dr*vphi.shape[0], vphi.shape[0]) 
+    )
+    r = np.sqrt(x**2 + y**2)
+    kappa = vphi / r 
+    kappa = block_reduce(kappa, vphi.shape[0]/tgas.shape[0])
+
+    # Compute the surface density within -10 and 10 au, i.e., 100 slices of 0.2au
+    dens = dens * (u.kg/u.m**3).to(u.g/u.cm**3)
+    dl = hdr['cdelt3b'] * u.au.to(u.cm)
+    sigma = dens[250-75: 250+75] * (dl * 150)
+    sigma = sigma.sum(axis=0)
+    
+    # Compute the Toomre parameter
+    mu = 2.36
+    m_H = c.m_p.cgs.value
+    k_B = c.k_B.cgs.value
+    G = c.G.cgs.value
+    sound_speed = np.sqrt((k_B * tgas) / (mu * m_H))    
+    q_mhd = (sound_speed * kappa) / (np.pi * G * sigma)
+
+    # Generate a radial average of the Q parameter
+    q_mhd = utils.radial_profile(q_mhd, nthreads=4)
+    fits.writeto('q_mhd.fits', q_mhd, overwrite=True)
+
+    # Generate the figure
     fig = plt.figure(figsize=figsize)
 
-    plt.plot(*q_ilee.values(), color='black', label='HD model')
-    #plt.plot(*q_ilee.values(), color='black', label='MHD model')
+    plt.plot(*q_hd.values(), color='black', ls='-', label='HD model')
+    plt.plot(np.arange(sigma.shape[0]/2), q_mhd, color='black', ls='--', label='MHD model')
 
-    plt.ylabel('Toomre Q parameter')
+    plt.legend()
+    plt.ylabel('Toomre Q')
     plt.xlabel('Radius (AU)')
 
-    plt.ylim(1.35, 2.4)
-    plt.xlim(0, 25)
+    plt.ylim(1, 11.5)
+    plt.xlim(5, 40)
+    plt.yticks(range(1, 12, 1))
+    plt.xticks(range(5, 45, 5))
+
+    plt.tight_layout()
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
-def plot_mass_estimates(show=True, savefig=None, figsize=(6,4)):
-    """ Plot the observational mass estimates of the HD model. """
+def plot_spectral_index_slice(show=True, savefig=None, figsize=(6,4.5)):
+    """ Plot the vertical cut of the spectral index for the ALMA observation and for 
+        the face-on HD model. Figure for the appendix. 
+    """
     
-    pass
+    # Read data
+    obs = utils.Observation('3mm')
+    prefix = Path(home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/amax10um/')
+    
+    # Read brightness temperatures 
+    intensity_model = fits.getdata(prefix/'3mm/0deg/data/3mm_0deg_a10um.fits').squeeze()
+
+    # Read spectral indices
+    alpha_iras = fits.getdata(home/'phd/polaris/sourceB_spectral_index.fits').squeeze()
+    alpha_model = fits.getdata(prefix/'spectral_index.fits').squeeze()
+
+    # Generate the plot
+    fig, p = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+
+    #p.plot(np.linspace(-2, 2, 400), alpha_iras[200,:], color='black', label='IRAS16293-2422 B', ls='-.')
+    p.plot(np.linspace(-0.35, 0.35, 300), alpha_model[150,:], color='black', label='HD model (Face-on)')
+    p.axhline(2, color='grey', linestyle='--')
+
+    # Add a vertical axis on the right hand to show the Stokes I of the HD model
+    pi = p.twinx()
+    pi.plot(np.linspace(-0.35, 0.35, 300), intensity_model[150,:]*1e6, color='tab:blue', ls='-')
+
+    plt.legend()
+    p.set_xticks([-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3])
+    p.set_xlim(-0.35, 0.35)
+    p.set_xlabel('Angular offset (arcseconds)')
+    p.set_ylabel(r'Spectral index $\alpha$')
+    pi.set_ylabel(r'Intensity ($\mu$Jy/pixel)')
+    pi.tick_params(axis='y', labelcolor='tab:blue')
+
+    plt.tight_layout() 
+
+    return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')

@@ -4,6 +4,7 @@
 import os
 import sys
 import time
+from functools import wraps
 from pathlib import Path, PosixPath
 
 import numpy as np
@@ -115,30 +116,33 @@ def write_fits(filename, data, header=None, overwrite=True, verbose=False):
 
 
 def elapsed_time(caller):
-	""" Decorator designed to print the time taken by a functon. """
-	# TO DO: Find a way to forward verbose from the caller even when
-	# is not provided explicitly, so that it takes the default value 
-	# from the caller.
+    """ Decorator designed to print the time taken by a functon. """
+    # TO DO: Find a way to forward verbose from the caller even when
+    # is not provided explicitly, so that it takes the default value 
+    # from the caller.
 
-	def wrapper(*args, **kwargs):
-		# Measure time before it runs
-		start = time.time()
+    # Forward docstrings to the caller function
+    @wraps(caller)
 
-		# Execute the caller function
-		f = caller(*args, **kwargs)
+    def wrapper(*args, **kwargs):
+        # Measure time before it runs
+        start = time.time()
 
-		# Measure time difference after it finishes
-		run_time = time.time() - start
+        # Execute the caller function
+        f = caller(*args, **kwargs)
 
-		# Print the elapsed time nicely formatted, if verbose is enabled
-		print_(
-			f'Elapsed time: {time.strftime("%H:%M:%S", time.gmtime(run_time))}', 
-			#verbose = kwargs.get('verbose'), 
-			verbose = True, 
-			fname = caller.__name__
-		)
-		return f
-	return wrapper
+        # Measure time difference after it finishes
+        run_time = time.time() - start
+
+        # Print the elapsed time nicely formatted, if verbose is enabled
+        print_(
+            f'Elapsed time: {time.strftime("%H:%M:%S", time.gmtime(run_time))}', 
+            #verbose = kwargs.get('verbose'), 
+            verbose = True, 
+            fname = caller.__name__
+        )
+        return f
+    return wrapper
 
 
 def ring_bell(soundfile=None):
@@ -653,7 +657,8 @@ def radial_profile(
         data = data[slices[0], slices[1]]
         dr = hdr.get('CDELT1B')
     else:
-        dr = input('[radial_profile] Enter dr [AU]: ')
+        if show:
+            dr = input('[radial_profile] Enter dr [AU]: ')
 
     # Drop empty axes
     data = data.squeeze()
@@ -1128,11 +1133,6 @@ def polarization_map(
     return plot_checkout(fig, show, savefig)
 
 
-def imsmooth(filename, bmaj, bmin):
-    """ Own implementation of the imsmooth task from the CASA package. """
-    pass
-
-
 def spectral_index(
     lam1_,
     lam2_,
@@ -1145,7 +1145,8 @@ def spectral_index(
     figsize=None, 
     show=True,
     savefig=None,
-    return_fig=True, 
+    return_fig=False, 
+    savefile=False, 
     *args,
     **kwargs
 ):
@@ -1193,7 +1194,11 @@ def spectral_index(
             else:
                 fig.show_contour(index2file, colors="black", levels=[2])
 
-            if os.path.isfile(index2file): os.remove(index2file)
+            # Delete the temporal file after the plot is done, unless savefile is True
+            if os.path.isfile(index2file) and not savefile: os.remove(index2file)
+
+            # If savefile is given as an argument, overwrite the default value
+            if isinstance(savefile, str): os.system(f'mv .spectral_index.fits {savefile}')
 
         except Exception as e:
             plt.close()
@@ -1381,10 +1386,10 @@ def horizontal_cuts(
         plt.annotate('MHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
 
         # Annotate the central hole
-        plt.axvline(-0.007, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.axvline(0.007, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.007, x2=0.007, color='grey', alpha=0.05, zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.007, x2=0.007, color='grey', alpha=0.05, zorder=2)
+        plt.axvline(-0.014, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.axvline(0.014, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.014, x2=0.014, color='grey', alpha=0.05, zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.014, x2=0.014, color='grey', alpha=0.05, zorder=2)
         plt.annotate(
             text='Central\nhole', 
             xy=(0.0, 200 if lam=='1.3mm' else 300), 
@@ -1402,10 +1407,10 @@ def horizontal_cuts(
         plt.annotate('HD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
 
         # Annotate the region of aritifical viscosity
-        plt.axvline(-0.035, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.axvline(0.035, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.035, x2=0.035, color='grey', alpha=0.05, zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.035, x2=0.035, color='grey', alpha=0.05, zorder=2)
+        plt.axvline(-0.07, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.axvline(0.07, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.07, x2=0.07, color='grey', alpha=0.05, zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.07, x2=0.07, color='grey', alpha=0.05, zorder=2)
         plt.annotate(
             text='Extra heating\nfrom\nartificial viscosity', 
             xy=(0.0, 350 if lam=='1.3mm' else 550), 
@@ -1666,7 +1671,7 @@ def tau_surface(
         return render['render'], op_depth_1mm, op_depth_3mm
 
 
-def disk_mass(temp, flux, lam='1.3mm', bmin=None, bmaj=None, gdratio=100, d=141*u.pc):
+def disk_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
     """ Calculate the disk gas mass using the observational approach, 
         e.g., assuming emission is optically thin and that temperature 
         is uniform across the disk (see Evans et al. 2017, eq. 2). 
@@ -1676,24 +1681,11 @@ def disk_mass(temp, flux, lam='1.3mm', bmin=None, bmaj=None, gdratio=100, d=141*
     """
     from astropy.modeling import models
     
-    # If bmin & bmaj not provided, obtain from the Observation obj based on lam
-    if None in [bmin, bmaj]:
-        obs = Observation(lam)
-        bmin = obs.header['bmin'] * u.deg.to(u.arcsec)
-        bmaj = obs.header['bmaj'] * u.deg.to(u.arcsec)
-    
     # Extinction opacity at 1.3 and 3 mm in cgs
     kappa = {
         '1.3mm': 1.49765 * (u.cm**2 / u.g), 
         '3mm': 0.58061 * (u.cm**2 / u.g)
     }
-
-    # Obtain the beam area and convert to sr
-    d = d.to(u.cm)
-    fwhm_to_sigma = 1 / np.sqrt(8 * np.log(2))
-    bmin = bmin * fwhm_to_sigma * u.arcsec 
-    bmaj = bmaj * fwhm_to_sigma * u.arcsec 
-    beam_area = 2 * np.pi * bmaj * bmin
 
     # Turn the flux from Jy/beam to Jy/sr
     flux = flux.to(u.erg * u.s**-1 * u.cm**-2 * u.Hz**-1)
