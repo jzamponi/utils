@@ -1348,18 +1348,6 @@ def horizontal_cuts(
         # Plot the observed profile
         plt.plot(obs.offset, obs.cut, label=label, color="black", ls="-.")
 
-        # Add the Observation's rms as a shade
-        rms = 104e-6 if lam == '1.3mm' else 17e-6
-        if bright_temp:
-            rms = Tb(
-                data=rms,
-                freq=obs.header.get("RESTFRQ") * u.Hz.to(u.GHz),
-                bmin=obs.header.get("bmin") * u.deg.to(u.arcsec),
-                bmaj=obs.header.get("bmaj") * u.deg.to(u.arcsec),
-            )
-            print_(f'RMS: {rms} K', True, bold=True)
-        plt.fill_between(obs.offset, obs.cut-rms, obs.cut+rms, alpha=0.5, color='grey')
-
     # Plot the cuts from the simulated observations for every inclination angle
     for angle in [f"{i}deg" for i in angles]:
         # Read data
@@ -1380,56 +1368,9 @@ def horizontal_cuts(
             **kwargs,
         )
 
-    # Customize the plot
-    if 'lmd2.4' in str(prefix):
-        # Label the panel
-        plt.annotate('MHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
-
-        # Annotate the central hole
-        plt.axvline(-0.014, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.axvline(0.014, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.014, x2=0.014, color='grey', alpha=0.05, zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.014, x2=0.014, color='grey', alpha=0.05, zorder=2)
-        plt.annotate(
-            text='Central\nhole', 
-            xy=(0.0, 200 if lam=='1.3mm' else 300), 
-            xytext=(0.1, 0.4), 
-            xycoords='data',
-            textcoords='axes fraction',
-            horizontalalignment='center', 
-            arrowprops=dict(arrowstyle="<|-", connectionstyle="angle3,angleA=0,angleB=-90"), 
-            fontsize=13, 
-        )
-        plt.ylim(0, 300 if lam=='1.3mm' else 480)
-
-    elif 'ilee' in str(prefix):
-        # Label the panel
-        plt.annotate('HD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
-
-        # Annotate the region of aritifical viscosity
-        plt.axvline(-0.07, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.axvline(0.07, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.07, x2=0.07, color='grey', alpha=0.05, zorder=2)
-        plt.fill_betweenx(range(800), x1=-0.07, x2=0.07, color='grey', alpha=0.05, zorder=2)
-        plt.annotate(
-            text='Extra heating\nfrom\nartificial viscosity', 
-            xy=(0.0, 350 if lam=='1.3mm' else 550), 
-            xytext=(0.17, 0.47), 
-            xycoords='data',
-            textcoords='axes fraction',
-            horizontalalignment='center', 
-            arrowprops=dict(arrowstyle="<|-", connectionstyle="angle3,angleA=0,angleB=-90"), 
-            fontsize=13, 
-        )
-        plt.ylim(0, 500 if lam=='1.3mm' else 780)
-        plt.xlabel("Angular offset (arcseconds)")
-
-    plt.annotate(r'$\lambda=$ %s'%lam, (0.70, 0.85), xycoords="axes fraction", fontsize=20)
-    plt.annotate('0.1" = 14AU', (0.73, 0.45), xycoords="axes fraction", fontsize=13)
-    plt.legend(ncol=1, loc="upper left")
     ylabel_ = r"$T_{\rm b}$ (K)" if bright_temp else r"mJy/beam"
     plt.ylabel(ylabel_)
-    plt.xlim(-0.35, 0.35)
+    plt.xlabel("Angular offset (arcseconds)")
 
     return plot_checkout(fig, show, savefig)
 
@@ -1691,9 +1632,8 @@ def disk_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
     flux = flux.to(u.erg * u.s**-1 * u.cm**-2 * u.Hz**-1)
  
     # Compute the specific Black-Body function at a given temperature
-    lam_ = 1.3*u.mm if lam == '1.3mm' else 3*u.mm
     B = models.BlackBody(temp.to(u.K))
-    B = B(lam_)
+    B = B(1.3*u.mm if lam == '1.3mm' else 3*u.mm)
 
     # Compute the gas mass (everything is now in cgs)
     mass = (gdratio * flux.value * d**2) / (kappa[lam] * B.value)

@@ -417,11 +417,16 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.set_yticks(np.arange(0, 400, 50))
             p.legend(loc='upper right')
 
+            # Annotate the Q<1.7 region (8-25au = 0.05-0.2as)
+            p.annotate(r'$Q<1.7$', (15, 215), xycoords="data", c='black', fontsize=11)
+            p.annotate('', xy=(8, 200), xytext=(25, 200), 
+                arrowprops=dict(arrowstyle='|-|', lw=0.5, mutation_scale=1.5))
+
         elif model == 'ilee':
             p.axhline(1200, ls='--', c='tab:red', lw=1)
             p.text(25, 1100, 'Silicate sublimation', c='tab:red')
             p.annotate(
-                'HD model', 
+                'RHD model', 
                 (0.10,0.82), 
                 xycoords='axes fraction', 
                 weight='bold'
@@ -429,9 +434,14 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.set_ylim(-50, 1250)
             p.set_yticks(np.arange(0, 1400, 200))
             p.set_xlabel('Radius (AU)')
-            p.set_xlim(0.0,50)
+    
+            # Annotate the Q<1.7 region (7-30au = 0.05-0.2as)
+            p.annotate(r'$Q<1.7$', (17, 650), xycoords="data", c='black', fontsize=11)
+            p.annotate('', xy=(7, 600), xytext=(30, 600), 
+                arrowprops=dict(arrowstyle='|-|', lw=0.5, mutation_scale=1.5))
 
         p.set_ylabel(r'$T_{\rm dust}$ (K)')
+        p.set_xlim(0.0, 40)
 
     plt.subplots_adjust(hspace=0)
 
@@ -449,7 +459,6 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     """
     
     if model == 'bo':
-        prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/'
         prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
         angles = [0, 10, 20, 30, 40]
 
@@ -471,17 +480,62 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
         show=False, 
     )
 
+    # Customize the plot
+    if 'lmd2.4' in str(prefix):
+        # Label the panel
+        plt.annotate('MHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
+
+        # Annotate the central hole
+        plt.axvline(-0.014, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.axvline(0.014, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.014, x2=0.014, color='grey', 
+            alpha=0.2, zorder=4, hatch='/')
+        plt.ylim(0, 300 if lam=='1.3mm' else 480)
+
+        # Annotate the Q<1.7 region (8-25au = 0.05-0.2as)
+        plt.annotate(r'$Q<1.7$', (0.54, 0.05), xycoords="axes fraction", c='blue', fontsize=13)
+        plt.annotate(r'$Q<1.7$', (0.33, 0.05), xycoords="axes fraction", c='blue', fontsize=13)
+        plt.axvspan(-0.18, -0.06, 0, 0.03, color='blue', alpha=0.13, zorder=3)
+        plt.axvspan(0.06, 0.18, 0, 0.03, color='blue', alpha=0.13, zorder=3)
+
+        plt.xticks([])
+        plt.xlabel("")
+
+    elif 'ilee' in str(prefix):
+        # Label the panel
+        plt.annotate('RHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
+
+        # Annotate the region of aritifical viscosity
+        plt.axvline(-0.07, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.axvline(0.07, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
+        plt.fill_betweenx(range(800), x1=-0.07, x2=0.07, color='grey', alpha=0.2, 
+            zorder=4, hatch='/')
+        plt.ylim(0, 460 if lam=='1.3mm' else 730)
+
+        # Annotate the Q<1.7 region (7-30au = 0.05-0.2as)
+        plt.annotate(r'$Q<1.7$', (0.62, 0.05), xycoords="axes fraction", c='blue', fontsize=13)
+        plt.annotate(r'$Q<1.7$', (0.20, 0.05), xycoords="axes fraction", c='blue', fontsize=13)
+        plt.axvspan(-0.28, -0.05, 0, 0.03, color='blue', alpha=0.13, zorder=3)
+        plt.axvspan(0.05, 0.28, 0, 0.03, color='blue', alpha=0.13, zorder=3)
+
+        plt.xlabel("Angular offset (arcseconds)")
+
+    plt.annotate(r'$\lambda=$ %s'%lam, (0.70, 0.85), xycoords="axes fraction", fontsize=20)
+    plt.annotate('0.1" = 14AU', (0.73, 0.45), xycoords="axes fraction", fontsize=13)
+    plt.legend(ncol=1, loc="upper left")
+    plt.xlim(-0.33, 0.33)
+
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
-def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=None, figsize=(17.5,6)):
+def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=True, savefig=None, figsize=(17.5,6)):
     """ Figure 6 """
     from aplpy import FITSFigure
 
     if model == 'bo':
-        prefix=Path(home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc/amax10um/')
+        prefix=Path(home/f'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/amax{amax}/')
     elif model == 'ilee':
-        prefix=Path(home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/amax10um/')
+        prefix=Path(home/f'phd/ilees_disk/results/dust_emission/temp_eos/sg/amax{amax}/')
     else:
         prefix=''
 
@@ -498,7 +552,7 @@ def plot_simulated_observations(model='ilee', incl='0deg', show=True, savefig=No
         subplot=[0.12, 0.05, 0.25, 0.9], 
     )
     f2 = utils.plot_map(
-        prefix/f'3mm/{incl}/data/3mm_{incl}_a10um_alma{"_nogap" if model=="bo" else ""}.fits', 
+        prefix/f'3mm/{incl}/data/3mm_{incl}_a{amax}_alma.fits', 
         figsize=None,
         stretch='linear', 
         scalebar=20*u.au, 
@@ -610,77 +664,72 @@ def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None,
     utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
-@utils.elapsed_time
-def plot_toomre_parameter(show=True, savefig=None, figsize=(5,4)):
+def plot_toomre_parameter(show=True, savefig=None, figsize=(4.0, 3.5)):
     """ Plot the radially averaged Toomre parameter for both disk models. """
     
     from astropy.nddata import block_reduce
     
-    # Read the tabulated Q values for the HD model from file 
-    q_hd = ascii.read(home/'phd/plots/paper1/interpolated_Toomre_Q.txt')
+    # Read the tabulated Q values for the RHD model 
+    q_hd = ascii.read(home/'phd/plots/paper1/toomre_q_rhd_model.txt')
 
-    # Compute the Q paramter for the MHD disk:
-    # Read the data
-    prefix = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/amax10um/data/'
-    dens, hdr = fits.getdata(
-        prefix/'dust_density_3d.fits.gz',  
-        header=True
-    )
-    tgas = fits.getdata(
-        prefix/'gas_temperature_3d.fits.gz',  
-    )
-    vphi, hdr_v = fits.getdata(
-        prefix/'input_midplane.fits.gz',  
-        header=True
-    )
-    # Extract the temp from the midplane
-    tgas = tgas[250]
-
-    # Extract the azimuthal velocity from all the midplanes (slice 11), 
-    # and compute the keplerian epicyclic frequency kappa = V_phi/r.
-    vphi = vphi[11, 0] * (u.m/u.s).to(u.cm/u.s)
-    dr = hdr_v['cdelt1b'] * u.au.to(u.cm)
-    x, y = np.meshgrid(
-        np.linspace(-dr*vphi.shape[0], dr*vphi.shape[0], vphi.shape[0]), 
-        np.linspace(-dr*vphi.shape[0], dr*vphi.shape[0], vphi.shape[0]) 
-    )
-    r = np.sqrt(x**2 + y**2)
-    kappa = vphi / r 
-    kappa = block_reduce(kappa, vphi.shape[0]/tgas.shape[0])
-
-    # Compute the surface density within -10 and 10 au, i.e., 100 slices of 0.2au
-    dens = dens * (u.kg/u.m**3).to(u.g/u.cm**3)
-    dl = hdr['cdelt3b'] * u.au.to(u.cm)
-    sigma = dens[250-75: 250+75] * (dl * 150)
-    sigma = sigma.sum(axis=0)
-    
-    # Compute the Toomre parameter
-    mu = 2.36
-    m_H = c.m_p.cgs.value
-    k_B = c.k_B.cgs.value
-    G = c.G.cgs.value
-    sound_speed = np.sqrt((k_B * tgas) / (mu * m_H))    
-    q_mhd = (sound_speed * kappa) / (np.pi * G * sigma)
-
-    # Generate a radial average of the Q parameter
-    q_mhd = utils.radial_profile(q_mhd, nthreads=4)
-    fits.writeto('q_mhd.fits', q_mhd, overwrite=True)
+    # Read the tabulated Q values for the MHD model 
+    q_mhd = ascii.read(home/'phd/plots/paper1/toomre_q_mhd_model.txt')
 
     # Generate the figure
     fig = plt.figure(figsize=figsize)
 
-    plt.plot(*q_hd.values(), color='black', ls='-', label='HD model')
-    plt.plot(np.arange(sigma.shape[0]/2), q_mhd, color='black', ls='--', label='MHD model')
+    plt.plot(*q_hd.values(), color='black', ls='-', label='RHD model')
+    plt.plot(*q_mhd.values(), color='black', ls='--', label='MHD model')
+    plt.axhline(1.7, color='black', ls=':', alpha=0.5)
+    plt.text(33, 1.57, r'$Q=1.7$', size=11)
+    plt.annotate('MHD\nmodel', xy=(0.50, 0.80), xycoords='axes fraction')
+    plt.annotate('RHD\nmodel', xy=(0.82, 0.70), xycoords='axes fraction')
 
-    plt.legend()
+    #plt.legend()
     plt.ylabel('Toomre Q')
     plt.xlabel('Radius (AU)')
 
-    plt.ylim(1, 11.5)
+    plt.ylim(1, 3)
     plt.xlim(5, 40)
-    plt.yticks(range(1, 12, 1))
+    plt.yticks([1, 2, 3])
     plt.xticks(range(5, 45, 5))
+    plt.tight_layout()
 
+    return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
+
+
+def plot_disk_mass(show=True, savefig=None, figsize=(4.5, 3.5)):
+    """ Plot the underestimation of the observational estimate of disk
+        mass from the synthetic obseravtoins of the RHD model.
+    """
+    
+    # Define the temperature range
+    temp = np.linspace(30, 100, 50)
+
+    # Define the real mass [M_sun] of the RHD disk
+    model = 0.3
+
+    # Define the fluxes at 1.3 and 3mm
+    S_1 = 1.60*u.Jy
+    S_3 = 0.29*u.Jy
+    
+    # Compute the mass estimates using both fluxes
+    mass_1 = utils.disk_mass(temp*u.K, S_1, lam='1.3mm')
+    mass_3 = utils.disk_mass(temp*u.K, S_3, lam='3mm')
+
+    # Plot the mass ratios
+    fig = plt.figure(figsize=figsize)
+    plt.plot(temp, mass_1/model, color='black', ls='-', label=r'$S_{\rm 1.3 mm}$')
+    plt.plot(temp, mass_3/model, color='black', ls='--', label=r'$S_{\rm 3 mm}$')
+    plt.axhline(1, ls=':', color='grey', alpha=0.7, lw=1.2)
+    plt.annotate(r'$S_{\rm 1.3\,mm}$', xy=(0.8, 0.1), xycoords='axes fraction', size=15)
+    plt.annotate(r'$S_{\rm 3\,mm}$', xy=(0.8, 0.3), xycoords='axes fraction', size=15)
+
+    plt.ylabel(r'$M_{\rm op.\,thin} / M_{\rm model}$')
+    plt.xlabel(r'Dust temperature (K)')
+    plt.xlim(temp.min(), temp.max())
+    plt.xticks(np.arange(30, 110, 10))
+    plt.yticks(np.arange(0.25, 2, 0.25))
     plt.tight_layout()
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
@@ -688,7 +737,7 @@ def plot_toomre_parameter(show=True, savefig=None, figsize=(5,4)):
 
 def plot_spectral_index_slice(show=True, savefig=None, figsize=(6,4.5)):
     """ Plot the vertical cut of the spectral index for the ALMA observation and for 
-        the face-on HD model. Figure for the appendix. 
+        the face-on RHD model. Figure for the appendix. 
     """
     
     # Read data
@@ -706,10 +755,10 @@ def plot_spectral_index_slice(show=True, savefig=None, figsize=(6,4.5)):
     fig, p = plt.subplots(nrows=1, ncols=1, figsize=figsize)
 
     #p.plot(np.linspace(-2, 2, 400), alpha_iras[200,:], color='black', label='IRAS16293-2422 B', ls='-.')
-    p.plot(np.linspace(-0.35, 0.35, 300), alpha_model[150,:], color='black', label='HD model (Face-on)')
+    p.plot(np.linspace(-0.35, 0.35, 300), alpha_model[150,:], color='black', label='RHD model (Face-on)')
     p.axhline(2, color='grey', linestyle='--')
 
-    # Add a vertical axis on the right hand to show the Stokes I of the HD model
+    # Add a vertical axis on the right hand to show the Stokes I of the RHD model
     pi = p.twinx()
     pi.plot(np.linspace(-0.35, 0.35, 300), intensity_model[150,:]*1e6, color='tab:blue', ls='-')
 
@@ -724,3 +773,6 @@ def plot_spectral_index_slice(show=True, savefig=None, figsize=(6,4.5)):
     plt.tight_layout() 
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
+
+
+
