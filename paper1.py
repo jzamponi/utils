@@ -244,6 +244,12 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
         ksca = k['col20'] * (u.m**2/u.kg).to(u.cm**2/u.g)
         return kabs if kappa == 'abs' else ksca
 
+    def albedo(amax):
+        kabs = read_opac(amax, 'abs')
+        ksca = read_opac(amax, 'sca')
+
+        return ksca / (kabs + ksca)
+
     # Set the global path
     prefix = home/f'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/{composition}/'
 
@@ -252,80 +258,88 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
     lam_l = ascii.read(prefix/f'amax1000um/data/dust_mixture_001.dat', data_start=10)['col1']*u.m.to(u.micron)
 
     # Create the figure object
-    fig = plt.figure(figsize=figsize)
-    abs_line = plt.plot([],[], ls='-',  color='black', label=r'Absorption')
-    sca_line = plt.plot([],[], ls='--', color='black',  label=r'Scattering')
+    fig, p = plt.subplots(figsize=figsize, nrows=2, ncols=1, sharex=True)
 
-    abs_p10 = plt.loglog(
+    # Add two empty curves to populate the legend
+    abs_line = p[0].plot([],[], ls='-',  color='black', label=r'Absorption')
+    sca_line = p[0].plot([],[], ls='--', color='black',  label=r'Scattering')
+
+    # Upper panel: absorption and scattering opacitites
+    abs_p10 = p[0].loglog(
         lam, 
         read_opac('1um','abs'), 
         ls='-', 
         color='tab:purple', 
         label=r'$a_{\rm max}=1\mu$m'
     )
-    sca_p10 = plt.loglog(
+    sca_p10 = p[0].loglog(
         lam, 
         read_opac('1um','sca'), 
         ls='--', 
         color='tab:purple'
     )
 
-    abs_p10 = plt.loglog(
+    abs_p10 = p[0].loglog(
         lam, 
         read_opac('10um','abs'), 
         ls='-', 
         color='tab:red', 
         label=r'$a_{\rm max}=10\mu$m'
     )
-    sca_p10 = plt.loglog(
+    sca_p10 = p[0].loglog(
         lam, 
         read_opac('10um','sca'), 
         ls='--', 
         color='tab:red'
     )
 
-    abs_p100 = plt.loglog(
+    abs_p100 = p[0].loglog(
         lam, 
         read_opac('100um','abs'), 
         ls='-', 
         color='tab:green', 
         label=r'$a_{\rm max}=100\mu$m'
     )
-    sca_p100 = plt.loglog(
+    sca_p100 = p[0].loglog(
         lam, 
         read_opac('100um','sca'), 
         ls='--', color='tab:green'
     )
 
-    abs_p1000 = plt.loglog(
+    abs_p1000 = p[0].loglog(
         lam_l, 
         read_opac('1000um','abs'), 
         ls='-', 
         color='tab:blue', 
         label=r'$a_{\rm max}=1000\mu$m'
     )
-    sca_p1000 = plt.loglog(
+    sca_p1000 = p[0].loglog(
         lam_l, 
         read_opac('1000um','sca'), 
         ls='--', color='tab:blue'
     )
 
-    plt.axvline(1.3e3, ls=':', color='grey')
-    plt.axvline(3e3, ls=':', color='grey')
-    plt.text(0.8e3, 1e2, '1.3 mm', rotation=90, size=13, color='grey') 
-    plt.text(1.9e3, 1e2, '3 mm', rotation=90, size=13, color='grey') 
+    p[0].axvline(1.3e3, ls=':', color='grey')
+    p[0].axvline(3e3, ls=':', color='grey')
+    p[0].text(0.9e3, 1e2, '1.3 mm', rotation=90, size=13, color='grey') 
+    p[0].text(2.05e3, 1e2, '3 mm', rotation=90, size=13, color='grey') 
+    p[0].legend(ncol=1)
+    p[0].set_ylim(1e-3,1e5)
+    p[0].set_xlim(1,4e3)
+    p[0].set_ylabel(r'$\kappa_{\nu}$ (cm$^2$g$^{-1}$)')
 
-    plt.tick_params(which='both', direction='in', left=True, right=True, bottom=True, top=True)
-    plt.minorticks_on()
-    #plt.yticks(np.logspace(-3,  5, 9))
-    plt.ylim(1e-3,1e5)
-    plt.xlim(1,4e3)
+    # Lower panel: albedo 
+    p[1].loglog(lam_l, albedo('1um'), label=r'$a_{\rm max}=1\mu$m', ls='-', color='tab:purple')
+    p[1].loglog(lam_l, albedo('10um'), label=r'$a_{\rm max}=10\mu$m', ls='-', color='tab:red')
+    p[1].loglog(lam_l, albedo('100um'), label=r'$a_{\rm max}=100\mu$m', ls='-', color='tab:green')
+    p[1].loglog(lam_l, albedo('1000um'), label=r'$a_{\rm max}=1000\mu$m', ls='-', color='tab:blue')
+    p[1].set_ylim(1e-4, 1.1)
+    p[1].set_yticks([1e-4, 1e-3, 1e-2, 1e-1])
+    p[1].set_ylabel('albedo $\omega$')
+    p[1].set_xlabel('Wavelength (microns)')
+    p[1].legend(ncol=1)
 
-    plt.legend()
-    plt.xlabel('Wavelength (microns)')
-    plt.ylabel(r'$\kappa_{\nu}$ (cm$^2$g$^{-1}$)')
-
-    plt.tight_layout()
+    plt.subplots_adjust(hspace=0)
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
@@ -421,6 +435,9 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.annotate(r'$Q<1.7$', (15, 215), xycoords="data", c='black', fontsize=11)
             p.annotate('', xy=(8, 200), xytext=(25, 200), 
                 arrowprops=dict(arrowstyle='|-|', lw=0.5, mutation_scale=1.5))
+
+            # Add temporal curve from a 20Lsun star with single grain size 10um
+            p.plot(*utils.radial_profile('/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/single10um/20Lsun/data/output_midplane.fits.gz', return_radii=True, nthreads=nthreads), color='blue', label=r'800 cm$^2$/g')
 
         elif model == 'ilee':
             p.axhline(1200, ls='--', c='tab:red', lw=1)
@@ -542,7 +559,7 @@ def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=Tru
     fig = plt.figure(figsize=figsize) 
 
     f1 = utils.plot_map(
-        prefix/f'1.3mm/{incl}/data/1.3mm_{incl}_a10um_alma.fits', 
+        prefix/f'1.3mm/{incl}/data/1.3mm_{incl}_a{amax}_alma.fits', 
         figsize=None,
         stretch='linear', 
         scalebar=20*u.au, 
@@ -562,8 +579,8 @@ def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=Tru
         subplot=[0.40, 0.05, 0.25, 0.9], 
     )
     f3 = utils.spectral_index(
-        prefix/f'1.3mm/0deg/data/1.3mm_0deg_a10um_alma.fits', 
-        prefix/f'3mm/0deg/data/3mm_0deg_a10um_alma_smoothed.fits', 
+        prefix/f'1.3mm/{incl}/data/1.3mm_{incl}_a{amax}_alma.fits', 
+        prefix/f'3mm/{incl}/data/3mm_{incl}_a{amax}_alma_smoothed.fits', 
         figsize=None, 
         vmin=1.7, 
         vmax=3.5, 
