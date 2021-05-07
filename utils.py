@@ -195,7 +195,13 @@ def parse(s, delimiter="%", d=None):
 
 
 def set_hdr_to_iras16293B(
-    hdr, wcs="deg", spec_axis=False, stokes_axis=False, for_casa=False, verbose=False
+    hdr, 
+    wcs="deg", 
+    keep_wcs=False,
+    spec_axis=False, 
+    stokes_axis=False, 
+    for_casa=False, 
+    verbose=False, 
 ):
     """
     Adapt the header to match that of the ALMA observation of IRAS16293-2422B.
@@ -230,19 +236,24 @@ def set_hdr_to_iras16293B(
 
     # Remove extra keywords PC3_* & PC*_3 added by CASA tasks and associated to a 3rd dim.
     if not any([spec_axis, stokes_axis, for_casa]):
-        [hdr.remove(k, True) for k in ["PC1_3", "PC2_3", "PC3_3", "PC3_1", "PC3_2", "PC4_2", "PC4_3", "PC2_4", "PC3_4", "PC4_4", "PC4_1", "PC1_4"]]
+        for k in ["PC1_3", "PC2_3", "PC3_3", "PC3_1", \
+                    "PC3_2", "PC4_2", "PC4_3", "PC2_4", \
+                    "PC3_4", "PC4_4", "PC4_1", "PC1_4"]:
+            hdr.remove(k, True) 
+            hdr.remove(k.replace('PC', 'PC0').replace('_', '_0'), True) 
 
     # Adjust the header to match obs. from IRAS16293-2422B
-    hdr["CUNIT1"] = "deg"
-    hdr["CTYPE1"] = "RA---SIN"
-    hdr["CRPIX1"] = 1 + hdr.get("NAXIS1") / 2
-    hdr["CDELT1"] = hdr.get("CDELT1")
-    hdr["CRVAL1"] = np.float64(248.0942916667)
-    hdr["CUNIT2"] = "deg"
-    hdr["CTYPE2"] = "DEC--SIN"
-    hdr["CRPIX2"] = 1 + hdr.get("NAXIS2") / 2
-    hdr["CDELT2"] = hdr.get("CDELT2")
-    hdr["CRVAL2"] = np.float64(-24.47550000000)
+    if not keep_wcs:
+        hdr["CUNIT1"] = "deg"
+        hdr["CTYPE1"] = "RA---SIN"
+        hdr["CRPIX1"] = 1 + hdr.get("NAXIS1") / 2
+        hdr["CDELT1"] = hdr.get("CDELT1")
+        hdr["CRVAL1"] = np.float64(248.0942916667)
+        hdr["CUNIT2"] = "deg"
+        hdr["CTYPE2"] = "DEC--SIN"
+        hdr["CRPIX2"] = 1 + hdr.get("NAXIS2") / 2
+        hdr["CDELT2"] = hdr.get("CDELT2")
+        hdr["CRVAL2"] = np.float64(-24.47550000000)
 
     # Add spectral axis if required
     if spec_axis:
@@ -813,7 +824,7 @@ def edit_keyword(filename, key, value, verbose=True):
 
     write_fits(filename, data=data, header=hdr, overwrite=True)
 
-
+@elapsed_time
 def plot_map(
     filename,
     header=None,
@@ -821,6 +832,7 @@ def plot_map(
     cblabel=None,
     scalebar=20 * u.au,
     cmap="magma",
+    stretch='linear', 
     verbose=True,
     bright_temp=True,
     figsize=None,
@@ -848,6 +860,7 @@ def plot_map(
     # Remove non-celestial WCS
     if hdr.get("NAXIS") > 2:
         tempfile = '.temp_file.fits'
+        # <patch>
         write_fits(
             tempfile, 
             data=data.squeeze(), 
@@ -865,11 +878,9 @@ def plot_map(
             bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
         )
 
-    # Store the peak emission
-    peak = np.max(data * rescale) if bright_temp else np.max(data)
-
-    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
-    fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin)
+    # Initialize the figure
+    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize)
+    fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin, stretch=stretch, *args, **kwargs)
     
     # Add contours if requested
     if contours:
@@ -926,6 +937,8 @@ def plot_map(
     # Delete the temporary file created to get rid of extra dimensions
     if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
 
+    plt.tight_layout()
+
     return plot_checkout(fig, show, savefig)
 
 
@@ -935,7 +948,7 @@ def polarization_map(
     render="intensity",
     polarization='linear', 
     wcs="deg",
-    rotate=90,
+    rotate=0,
     step=20,
     scale=50,
     fmin=None,
@@ -965,16 +978,17 @@ def polarization_map(
     # Store the current path
     pwd = os.getcwd()
 
-    # Read the output from polaris
-    data, hdr = fits.getdata(filename, header=True)
+    # Read the Stokes components from data cube
+    data = fits.getdata(filename).squeeze()
+    hdr = fits.getheader(filename)
 
-    I = data[0][0]
-    Q = data[1][0]
-    U = data[2][0]
-    V = data[3][0]
+    I = data[0]
+    Q = data[1]
+    U = data[2]
+    V = data[3]
 
     try:
-        tau = data[4][0]
+        tau = data[4]
     except:
         tau = np.zeros(I.shape)
 
@@ -1041,7 +1055,6 @@ def polarization_map(
                     f'File with self-scattered flux does not exist.\n\
 										File: {selfscat_file+"/"+filename}'
                 )
-
     elif isinstance(add_thermal, (str,PosixPath)):
         try:
             I_ss = fits.getdata(add_selfscat)
@@ -1050,26 +1063,71 @@ def polarization_map(
                 f"File with self-scattered flux does not exist.\n\
 									File: {add_selfscat}"
             )
-
     else:
         I_ss = np.zeros(I.shape)
 
-    # Add all sources of emission
+    # Add all sources of flux: direct thermal and scattered emission
     I = I + I_th + I_ss
 
-    # Define the polarization angle and fraction
-    pangle = 0.5 * np.arctan(U / Q) * u.rad.to(u.deg)
+    def pol_angle(stokes_q, stokes_u):
+        """Calculates the polarization angle from Q and U Stokes component.
 
+        Args:
+            stokes_q (float): Q-Stokes component [Jy].
+            stokes_u (float): U-Stokes component [Jy].
+
+        Returns:
+            float: Polarization angle.
+        
+        Note: temporally copied from polaris-tools.
+        """
+        #: float: Polarization angle from Stokes Q component
+        q_angle = 0.
+        if stokes_q >= 0:
+            q_angle = np.pi / 2.
+        #: float: Polarization angle from Stokes U component
+        u_angle = 0.
+        if stokes_u >= 0:
+            u_angle = np.pi / 4.
+        elif stokes_u < 0:
+            if stokes_q >= 0:
+                u_angle = np.pi * 3. / 4.
+            elif stokes_q < 0:
+                u_angle = -np.pi / 4.
+        #: float: x vector components from both angles
+        x = abs(stokes_q) * np.sin(q_angle)
+        x += abs(stokes_u) * np.sin(u_angle)
+        #: float: y vector components from both angles
+        y = abs(stokes_q) * np.cos(q_angle)
+        y += abs(stokes_u) * np.cos(u_angle)
+        # Define a global direction of the polarization vector since polarization vectors
+        # are ambiguous in both directions.
+        if x < 0:
+            x *= -1.0
+            y *= -1.0
+        #: float: Polarization angle calculated from Q and U components
+        pol_angle = np.arctan2(y, x)
+        return pol_angle
+
+    # Compute the polarization angle 
+    pangle = np.zeros(Q.shape)
+    for qi, ui in zip(range(Q.shape[0]), range(U.shape[0])):
+        for qj, uj in zip(range(Q.shape[1]), range(U.shape[1])):
+            pangle[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])
+
+    pangle = pangle * u.rad.to(u.deg)
+
+    # Compute the polarization fraction 
     if const_pfrac:
         pfrac = np.ones(Q.shape)
     else:
         if polarization in ['linear', 'l']:
-            pfrac = np.sqrt(U ** 2 + Q ** 2) / I
+            pfrac = np.divide(np.sqrt(U**2 + Q**2), I, where=I != 0)
         elif polarization in ['circular', 'c']:
             pfrac = V / I
 
     # Edit the header to match the observation from IRAS16293B
-    hdr = set_hdr_to_iras16293B(hdr)
+    hdr = set_hdr_to_iras16293B(hdr, keep_wcs=True, verbose=True)
 
     # Write quantities into fits files
     quantities = {"I": I, "Q": Q, "U": U, "V": V, "tau": tau, "pfrac": pfrac, "pangle": pangle}
@@ -1079,9 +1137,11 @@ def polarization_map(
     # Select the quantity to plot
     if render.lower() in ["intensity", "i"]:
         figname = "I.fits"
-        cblabel = r"Stokes I ($\mu$Jy/pixel)"
+    #    cblabel = r"Stokes I ($\mu$Jy/pixel)"
         # Rescale to micro Jy/px
-        rescale = 1e6
+    #    rescale = 1e6
+        rescale = 1
+        cblabel = r"Stokes I (Jy/beam)"
 
     elif render.lower() in ["q"]:
         figname = "Q.fits"
@@ -1106,18 +1166,13 @@ def polarization_map(
         rescale = 1
 
     else:
+        rescale = 1
         raise ValueError("Wrong value for render. Must be 'intensity' or 'pfrac'.")
 
     # Plot the render quantity a colormap
     fig = plot_map(
         figname, rescale=rescale, cblabel=cblabel, bright_temp=False, *args, **kwargs,
     )
-
-    # Temporal Patch. TO DO: put it right
-    # Don't rotate the pol. vectors if it comes from self-scattered flux
-    if "dust_scattering" in pwd:
-        print_('Polarization by self-scat: vectors are not rotated.', True)
-        rotate = 0
 
     # Add polarization vectors
     fig.show_vectors(
@@ -1126,6 +1181,7 @@ def polarization_map(
         step=step,
         scale=scale,
         rotate=rotate,
+        units='degrees', 
         color=vector_color,
         layer="pol_vectors",
     )
@@ -1465,8 +1521,8 @@ def tau_surface(
     bin_factor=[1,1,1], 
     render='temperature', 
     convolve=True, 
-    plot2D=True, 
-    plot3D=False, 
+    plot2D=False, 
+    plot3D=True, 
     cache=False, 
     savefig=None, 
     verbose=True
@@ -1591,19 +1647,19 @@ def tau_surface(
 
         # Filter the optical depth lying outside of a given temperature isosurface, 
         # e.g., at T > 100 K.
-        op_depth_1mm[temp < 30] = 0
-        op_depth_3mm[temp < 30] = 0
+        op_depth_1mm[temp < 100] = 0
+        op_depth_3mm[temp < 100] = 0
 
         # Draw a line in 3D space to indicate the position of the observer
-        midplane = np.zeros(np.shape(temp))
-        midplane[0:20, 125, 125] = 1
+#        midplane = np.zeros(np.shape(temp))
+#        midplane[0:20, 125, 125] = 1
+#        midplaneplot = mlab.contour3d(
+#            midplane, 
+#            contours=[3], 
+#            colormap='black-white', 
+#            opacity=1, 
+#        )
 
-        midplaneplot = mlab.contour3d(
-            midplane, 
-            contours=[3], 
-            colormap='black-white', 
-            opacity=1, 
-        )
         # Plot the temperature
         rendplot = mlab.contour3d(
             temp, 
@@ -1663,5 +1719,41 @@ def disk_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
     mass = (gdratio * flux.value * d**2) / (kappa[lam] * B.value)
 
     return mass.to(u.Msun)
+
+
+def plot_web(array):
+    """ Generate a web-based plot of a 3D NumPy array.
+        The figure is generated with Dash (Plotly) and
+        displayed in a web browser.
+        Plot a Gaussian Kernel by default, just for illustration
+        purposes.
+    """
+
+    import plotly.graph_objects as go
+
+    # Create a 3D grid
+    X, Y, Z = np.mgrid[
+        -50:50:array.shape[0]*1j, 
+        -50:50:array.shape[1]*1j, 
+        -50:50:array.shape[2]*1j
+    ]
+
+    # Generate the 3D figure 
+    fig = go.Figure(data=go.Isosurface(
+        x=X.flatten(),
+        y=Y.flatten(),
+        z=Z.flatten(),
+        value=array.flatten(),
+        opacity=0.6, 
+        isomin=90, 
+        isomax=400,
+        surface_count=10, 
+        colorscale='inferno', 
+        showscale=True,
+        caps=dict(x_show=True, y_show=True),
+        ))  
+
+    fig.update_layout()
+    fig.show()
 
 

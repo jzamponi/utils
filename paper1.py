@@ -409,10 +409,10 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             eos_rt = fit(r_eos_rt, eos_rt)
 
         # Plot the curves
-        p.plot(r_rt, rt, ls=':', c='black', label=r'$T_{\rm dust} =$ Star heating')
+        p.plot(r_rt, rt, ls=':', c='black', label=r'$T_{\rm dust} = T_{\rm rad}$ ')
         p.plot(r_eos, eos, ls='--', c='black', label=r'$T_{\rm dust} = T_{\rm gas}$')
         p.plot(r_eos_rt, eos_rt, ls='-', c='black', 
-            label=r'$T_{\rm dust} = T_{\rm gas}$ and'+'\n\tstar heating'
+            label=r'$T_{\rm dust} = T_{\rm gas}$ and $T_{\rm rad}$'
         )
 
         # Customize both panels
@@ -436,8 +436,8 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.annotate('', xy=(8, 200), xytext=(25, 200), 
                 arrowprops=dict(arrowstyle='|-|', lw=0.5, mutation_scale=1.5))
 
-            # Add temporal curve from a 20Lsun star with single grain size 10um
-            p.plot(*utils.radial_profile('/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/single10um/20Lsun/data/output_midplane.fits.gz', return_radii=True, nthreads=nthreads), color='blue', label=r'800 cm$^2$/g')
+            # Add temporal curve from a 20Lsun star with single grain size 100um
+            #p.plot(*utils.radial_profile('/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/single100um/20Lsun/data/output_midplane.fits.gz', return_radii=True, nthreads=nthreads), color='blue', label=r'80 cm$^2$/g')
 
         elif model == 'ilee':
             p.axhline(1200, ls='--', c='tab:red', lw=1)
@@ -456,6 +456,9 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.annotate(r'$Q<1.7$', (17, 650), xycoords="data", c='black', fontsize=11)
             p.annotate('', xy=(7, 600), xytext=(30, 600), 
                 arrowprops=dict(arrowstyle='|-|', lw=0.5, mutation_scale=1.5))
+
+            # Add temporal curve from a 20Lsun star with single grain size 100um
+            #p.plot(*utils.radial_profile('/home/jz/phd/ilees_disk/results/dust_heating/sg/single100um/20Lsun/data/output_midplane.fits.gz', return_radii=True, nthreads=nthreads), color='blue', label=r'80 cm$^2$/g')
 
         p.set_ylabel(r'$T_{\rm dust}$ (K)')
         p.set_xlim(0.0, 40)
