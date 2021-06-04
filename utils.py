@@ -922,17 +922,18 @@ def plot_map(
 
     # Scalebar
     # TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
-    try:
-        D = 141 * u.pc
-        scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
-        fig.add_scalebar(scalebar_ * u.arcsec)
-        fig.scalebar.set_color("white")
-        fig.scalebar.set_corner("bottom right")
-        fig.scalebar.set_font(size=23)
-        fig.scalebar.set_linewidth(3)
-        fig.scalebar.set_label(f"{int(scalebar.value)} {scalebar.unit}")
-    except Exception as e:
-        print_(f'Not able to add scale bar. Error: {e}', verbose=True, fail=True)
+    if scalebar is not None:
+        try:
+            D = 141 * u.pc
+            scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
+            fig.add_scalebar(scalebar_ * u.arcsec)
+            fig.scalebar.set_color("white")
+            fig.scalebar.set_corner("bottom right")
+            fig.scalebar.set_font(size=23)
+            fig.scalebar.set_linewidth(3)
+            fig.scalebar.set_label(f"{int(scalebar.value)} {scalebar.unit}")
+        except Exception as e:
+            print_(f'Not able to add scale bar. Error: {e}', verbose=True, fail=True)
 
     # Delete the temporary file created to get rid of extra dimensions
     if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
@@ -946,7 +947,7 @@ def plot_map(
 def polarization_map(
     filename="polaris_detector_nr0001.fits.gz",
     render="intensity",
-    polarization='linear', 
+    polarization="linear", 
     wcs="deg",
     rotate=0,
     step=20,
@@ -992,8 +993,18 @@ def polarization_map(
     except:
         tau = np.zeros(I.shape)
 
-    # Add thermal emission to the self-scattered emission if required
-    if add_thermal:
+    # Add thermal flux to the scattered flux.
+    # If add_thermal is a path, then read the flux from file
+    if isinstance(add_thermal, (str,PosixPath)):
+        try:
+            I_th = fits.getdata(add_thermal)
+        except OSError:
+            raise FileNotFoundError(
+                f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
+            )
+
+    # If add_thermal is True, assume the path to scattered flux file is similarly structured 
+    elif add_thermal:
         if "thermal emission" in hdr.get("ETYPE", ""):
             print_("You are adding thermal flux to the thermal flux.")
             print_("Not gonna happen.")
@@ -1001,7 +1012,13 @@ def polarization_map(
 
         elif "scattered emission" in hdr.get("ETYPE", ""):
             print_("Adding thermal flux to the self-scattered flux.")
-            thermal_file = pwd.replace("dust_scattering", "dust_emission")
+
+            if 'dust_scattering' in pwd:
+                thermal_file = pwd.replace("dust_scattering", "dust_emission")
+            elif 'dust_mc' in pwd:
+                thermal_file = pwd.replace("dust_mc", "dust_th")
+
+            print_(f"File: {thermal_file + '/' + filename}")
             try:
                 I_th = fits.getdata(thermal_file + "/" + filename)[0][0]
             except OSError:
@@ -1009,14 +1026,6 @@ def polarization_map(
                     f'File with thermal flux does not exist.\n\
 										File: {thermal_file+"/"+filename}'
                 )
-
-    elif isinstance(add_thermal, (str,PosixPath)):
-        try:
-            I_th = fits.getdata(add_thermal)
-        except OSError:
-            raise FileNotFoundError(
-                f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
-            )
 
     else:
         I_th = np.zeros(I.shape)
@@ -1055,7 +1064,7 @@ def polarization_map(
                     f'File with self-scattered flux does not exist.\n\
 										File: {selfscat_file+"/"+filename}'
                 )
-    elif isinstance(add_thermal, (str,PosixPath)):
+    elif isinstance(add_selfscat, (str,PosixPath)):
         try:
             I_ss = fits.getdata(add_selfscat)
         except OSError:
@@ -1081,11 +1090,11 @@ def polarization_map(
         
         Note: temporally copied from polaris-tools.
         """
-        #: float: Polarization angle from Stokes Q component
+        # Polarization angle from Stokes Q component
         q_angle = 0.
         if stokes_q >= 0:
             q_angle = np.pi / 2.
-        #: float: Polarization angle from Stokes U component
+        # Polarization angle from Stokes U component
         u_angle = 0.
         if stokes_u >= 0:
             u_angle = np.pi / 4.
@@ -1094,10 +1103,10 @@ def polarization_map(
                 u_angle = np.pi * 3. / 4.
             elif stokes_q < 0:
                 u_angle = -np.pi / 4.
-        #: float: x vector components from both angles
+        # x vector components from both angles
         x = abs(stokes_q) * np.sin(q_angle)
         x += abs(stokes_u) * np.sin(u_angle)
-        #: float: y vector components from both angles
+        # y vector components from both angles
         y = abs(stokes_q) * np.cos(q_angle)
         y += abs(stokes_u) * np.cos(u_angle)
         # Define a global direction of the polarization vector since polarization vectors
@@ -1105,7 +1114,7 @@ def polarization_map(
         if x < 0:
             x *= -1.0
             y *= -1.0
-        #: float: Polarization angle calculated from Q and U components
+        # Polarization angle calculated from Q and U components
         pol_angle = np.arctan2(y, x)
         return pol_angle
 
@@ -1117,12 +1126,15 @@ def polarization_map(
 
     pangle = pangle * u.rad.to(u.deg)
 
+    # Compute the polarized intensity
+    pi = np.sqrt(U**2 + Q**2)
+
     # Compute the polarization fraction 
     if const_pfrac:
         pfrac = np.ones(Q.shape)
     else:
         if polarization in ['linear', 'l']:
-            pfrac = np.divide(np.sqrt(U**2 + Q**2), I, where=I != 0)
+            pfrac = np.divide(pi, I, where=I != 0)
         elif polarization in ['circular', 'c']:
             pfrac = V / I
 
@@ -1130,18 +1142,16 @@ def polarization_map(
     hdr = set_hdr_to_iras16293B(hdr, keep_wcs=True, verbose=True)
 
     # Write quantities into fits files
-    quantities = {"I": I, "Q": Q, "U": U, "V": V, "tau": tau, "pfrac": pfrac, "pangle": pangle}
+    quantities = {"I": I, "Q": Q, "U": U, "V": V, "tau": tau, "pi": pi, "pfrac": pfrac, "pangle": pangle}
     for f, d in quantities.items():
         write_fits(f + ".fits", d, hdr)
 
     # Select the quantity to plot
-    if render.lower() in ["intensity", "i"]:
+    if render.lower() in ["i", "intensity"]:
         figname = "I.fits"
-    #    cblabel = r"Stokes I ($\mu$Jy/pixel)"
+        cblabel = r"Stokes I ($\mu$Jy/pixel)"
         # Rescale to micro Jy/px
-    #    rescale = 1e6
-        rescale = 1
-        cblabel = r"Stokes I (Jy/beam)"
+        rescale = 1e6
 
     elif render.lower() in ["q"]:
         figname = "Q.fits"
@@ -1160,7 +1170,13 @@ def polarization_map(
         cblabel = r"Optical depth"
         rescale = 1
 
-    elif render.lower() in ["pfrac", "p", "pol"]:
+    elif render.lower() in ["pi", "poli", "polarized intensity"]:
+        figname = "pi.fits"
+        cblabel = r"Polarized intensity ($\mu$Jy/pixel)"
+        # Rescale to micro Jy/px
+        rescale = 1e6
+
+    elif render.lower() in ["pf", "pfrac", "polarization fraction"]:
         figname = "pfrac.fits"
         cblabel = r"Polarization fraction"
         rescale = 1
@@ -1171,8 +1187,12 @@ def polarization_map(
 
     # Plot the render quantity a colormap
     fig = plot_map(
-        figname, rescale=rescale, cblabel=cblabel, bright_temp=False, *args, **kwargs,
+        figname, rescale=rescale, cblabel=cblabel, bright_temp=False, scalebar=None, *args, **kwargs,
     )
+
+    # Shift the origin of APLPy's vector angles, to be consistent with matplotlib
+    # and books, e.g., Rybicky & Lightman (2004), Fig. 2.4.
+    rotate = int(rotate) - 90
 
     # Add polarization vectors
     fig.show_vectors(
@@ -1181,8 +1201,8 @@ def polarization_map(
         step=step,
         scale=scale,
         rotate=rotate,
-        units='degrees', 
         color=vector_color,
+        units='degrees', 
         layer="pol_vectors",
     )
 
@@ -1354,8 +1374,9 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
 
 
 @elapsed_time
-def horizontal_cuts(
-    angles,
+def horizontal_cut(
+    filename=None, 
+    angles=None,
     add_obs=True,
     scale_obs=None,
     axis=0,
@@ -1365,6 +1386,7 @@ def horizontal_cuts(
     show=True,
     savefig=None,
     bright_temp=True,
+    return_data=False, 
     *args,
     **kwargs,
 ):
@@ -1409,6 +1431,11 @@ def horizontal_cuts(
     # Create a figure object
     fig = plt.figure()
 
+    ylabel_ = r"$T_{\rm b}$ (K)" if bright_temp else r"mJy/beam"
+    plt.ylabel(ylabel_)
+    plt.xlabel("Angular offset (arcseconds)")
+    plt.xlim(-0.33, 0.33)
+
     # Plot the cut from the real observation if required
     if add_obs:
         # Read data
@@ -1427,11 +1454,9 @@ def horizontal_cuts(
 
         # Plot the observed profile
         plt.plot(obs.offset, obs.cut, label=label, color="black", ls="-.")
-
-    # Plot the cuts from the simulated observations for every inclination angle
-    for angle in [f"{i}deg" for i in angles]:
-        # Read data
-        filename = prefix / f"amax{amax}/{lam}/{angle}/data/{lam}_{angle}_a{amax}_alma.fits"
+    
+    if filename is not None:
+        # Plot the horizontal cut for a single file
         data, hdr = fits.getdata(filename, header=True)
 
         # Drop empty axes. Flip and rescale
@@ -1443,16 +1468,41 @@ def horizontal_cuts(
         plt.plot(
             offset,
             cut,
-            label=f"{angle} ", #+ r"($T_{\rm dust}=T_{\rm gas}$)",
             *args,
             **kwargs,
         )
+        plt.legend()
 
-    ylabel_ = r"$T_{\rm b}$ (K)" if bright_temp else r"mJy/beam"
-    plt.ylabel(ylabel_)
-    plt.xlabel("Angular offset (arcseconds)")
+        if return_data:
+            return (offset, cut)
+
+    elif angles is not None:
+        # Plot the cuts from the simulated observations for every inclination angle
+        for angle in [f"{i}deg" for i in angles]:
+            # Read data
+            filename = prefix / f"amax{amax}/{lam}/{angle}/data/{lam}_{angle}_a{amax}_alma.fits"
+            data, hdr = fits.getdata(filename, header=True)
+
+            # Drop empty axes. Flip and rescale
+            data = np.fliplr(np.squeeze(data))
+            if not bright_temp:
+                data *= 1e3
+
+            offset, cut = angular_offset(data, hdr)
+            plt.plot(
+                offset,
+                cut,
+                label=f"{angle} ", #+ r"($T_{\rm dust}=T_{\rm gas}$)",
+                *args,
+                **kwargs,
+            )
+        plt.legend() 
+
+        if return_data:
+            return {str(angle): (offset, cut) for angle in angles}
 
     return plot_checkout(fig, show, savefig)
+
 
 
 
@@ -1520,10 +1570,13 @@ def tau_surface(
     tau=1, 
     bin_factor=[1,1,1], 
     render='temperature', 
+    amax='100um', 
+    gas2dust=100, 
     convolve=True, 
     plot2D=False, 
     plot3D=True, 
     cache=False, 
+    reload=False, 
     savefig=None, 
     verbose=True
 ):
@@ -1541,7 +1594,7 @@ def tau_surface(
     tempfile_op1mm = prefix/Path('.tau1mm_3d.fits')
     tempfile_op3mm = prefix/Path('.tau3mm_3d.fits')
 
-    if  cache and \
+    if not reload and cache and \
         os.path.exists(tempfile_temp) and \
         os.path.exists(tempfile_op1mm) and \
         os.path.exists(tempfile_op3mm) and \
@@ -1577,12 +1630,23 @@ def tau_surface(
 
             print_(f'Binned array shape: {rho.shape}', verbose)
 
-            # Extinction opacity at 1.3 and 3 mm
-            kappa_1mm = 0.149765 * (u.m**2/u.kg)
-            kappa_3mm = 0.058061 * (u.m**2/u.kg)
+            # Dust opacities for a mixture of silicates and graphites
+            if amax == '10um':
+                # Extinction opacity at 1.3 and 3 mm for amax = 10um
+                kappa_1mm = 0.149765 * (u.m**2/u.kg)
+                kappa_3mm = 0.058061 * (u.m**2/u.kg)
+            elif amax == '100um':
+                # Extinction opacity at 1.3 and 3 mm for amax = 1000um
+                kappa_1mm = 0.228971 * (u.m**2/u.kg)
+                kappa_3mm = 0.074914 * (u.m**2/u.kg)
+            elif amax == '1000um':
+                # Extinction opacity at 1.3 and 3 mm for amax = 1000um
+                kappa_1mm = 1.287900 * (u.m**2/u.kg)
+                kappa_3mm = 0.603334 * (u.m**2/u.kg)
 
             # Surface density
             dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
+            rho = (gas2dust / 100) * rho
             sigma_3d = np.cumsum(rho * dl, axis=0)
             op_depth_1mm = (sigma_3d * kappa_1mm).value
             op_depth_3mm = (sigma_3d * kappa_3mm).value
@@ -1650,23 +1714,13 @@ def tau_surface(
         op_depth_1mm[temp < 100] = 0
         op_depth_3mm[temp < 100] = 0
 
-        # Draw a line in 3D space to indicate the position of the observer
-#        midplane = np.zeros(np.shape(temp))
-#        midplane[0:20, 125, 125] = 1
-#        midplaneplot = mlab.contour3d(
-#            midplane, 
-#            contours=[3], 
-#            colormap='black-white', 
-#            opacity=1, 
-#        )
-
         # Plot the temperature
         rendplot = mlab.contour3d(
             temp, 
             colormap='inferno', 
             opacity=.3, 
-#            vmin=90, 
-#            vmax=400, 
+            vmin=90, 
+            vmax=400, 
             contours=10, 
         )
         figcb = mlab.colorbar(
@@ -1677,14 +1731,14 @@ def tau_surface(
         # Plot optical depth at 3mm
         tauplot_1mm = mlab.contour3d(
             op_depth_1mm, 
-            contours=[1], 
+            contours=[tau], 
             color=(0, 1, 0), 
             opacity=0.5, 
         )
         # Plot optical depth at 1mm
         tauplot_3mm = mlab.contour3d(
             op_depth_3mm,  
-            contours=[1], 
+            contours=[tau], 
             color=(0, 0, 1), 
             opacity=0.7, 
         )
@@ -1702,7 +1756,7 @@ def disk_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
     """
     from astropy.modeling import models
     
-    # Extinction opacity at 1.3 and 3 mm in cgs
+    # Extinction opacity at 1.3 and 3 mm in cgs for amax=10um
     kappa = {
         '1.3mm': 1.49765 * (u.cm**2 / u.g), 
         '3mm': 0.58061 * (u.cm**2 / u.g)

@@ -489,7 +489,7 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     else:
         prefix=''
 
-    fig = utils.horizontal_cuts(
+    fig = utils.horizontal_cut(
         angles=angles, 
         bright_temp=True, 
         add_obs=True, 
