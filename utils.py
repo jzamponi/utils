@@ -436,7 +436,7 @@ def create_cube(
     wcs="deg",
     spec_axis=False,
     stokes_axis=False,
-    add_selfscat=False,
+    add_scattered=False,
     for_casa=True,
     overwrite=False,
     verbose=False,
@@ -484,7 +484,7 @@ def create_cube(
     )
 
     # Add emission by self-scattering if required
-    if add_selfscat:
+    if add_scattered:
         if "scattered emission" in hdr.get("ETYPE", ""):
             print_(
                 "You are adding self-scattered flux to the self-scattered flux. Not gonna happen."
@@ -694,7 +694,7 @@ def radial_profile(
         dr = hdr.get('CDELT1B')
     else:
         if show:
-            dr = input('[radial_profile] Enter dr [AU]: ')
+            dr = float(input('[radial_profile] Enter dr [AU]: '))
 
     # Drop empty axes
     data = data.squeeze()
@@ -920,6 +920,10 @@ def plot_map(
     fig.ticks.set_length(6)
     fig.ticks.set_minor_frequency(5)
 
+    # Hide ticks and labels if FITS file is not a real obs.
+    fig.axis_labels.hide()
+    fig.tick_labels.hide()
+
     # Scalebar
     # TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
     if scalebar is not None:
@@ -958,7 +962,7 @@ def polarization_map(
     show=True,
     vector_color="white",
     add_thermal=False,
-    add_selfscat=False,
+    add_scattered=False,
     add_bfield=False,
     const_bfield=False,
     const_pfrac=False,
@@ -1006,19 +1010,18 @@ def polarization_map(
     # If add_thermal is True, assume the path to scattered flux file is similarly structured 
     elif add_thermal:
         if "thermal emission" in hdr.get("ETYPE", ""):
-            print_("You are adding thermal flux to the thermal flux.")
-            print_("Not gonna happen.")
+            print_("You are adding thermal flux to the thermal flux. Not gonna happen.", bold=True)
             I_th = np.zeros(I.shape)
 
         elif "scattered emission" in hdr.get("ETYPE", ""):
-            print_("Adding thermal flux to the self-scattered flux.")
+            print_("Adding thermal flux to the self-scattered flux.", bold=True)
 
             if 'dust_scattering' in pwd:
                 thermal_file = pwd.replace("dust_scattering", "dust_emission")
             elif 'dust_mc' in pwd:
                 thermal_file = pwd.replace("dust_mc", "dust_th")
 
-            print_(f"File: {thermal_file + '/' + filename}")
+            print_(f"File: {thermal_file + '/' + filename}", bold=True)
             try:
                 I_th = fits.getdata(thermal_file + "/" + filename)[0][0]
             except OSError:
@@ -1026,54 +1029,47 @@ def polarization_map(
                     f'File with thermal flux does not exist.\n\
 										File: {thermal_file+"/"+filename}'
                 )
-
+    # If not provided, set to zero
     else:
         I_th = np.zeros(I.shape)
 
     # Add self-scattered emission to the thermal emission if required
-    if add_selfscat:
-        if "scattered emission" in hdr.get("ETYPE", ""):
-            print_(
-                "You are adding self-scattered flux to the self-scattered flux. Not gonna happen."
+    if isinstance(add_scattered, (str,PosixPath)):
+        try:
+            I_ss = fits.getdata(add_scattered)
+        except OSError:
+            raise FileNotFoundError(
+                f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
             )
+
+    # If add_thermal is True, assume the path to scattered flux file is similarly structured 
+    elif add_scattered:
+        if "scattered emission" in hdr.get("ETYPE", ""):
+            print_("You are adding scattered flux to the scattered flux. Not gonna happen.", bold=True)
             I_ss = np.zeros(I.shape)
 
         elif "thermal emission" in hdr.get("ETYPE", ""):
-            print_("Adding self-scattered flux to the thermal flux.")
-            if "dust_polarization" in pwd:
-                pwd = pwd.replace("pa/", "")
-                selfscat_file = pwd.replace("dust_polarization", "dust_scattering")
+            print_("Adding scattered flux to the thermal flux.", bold=True)
 
-                # Change the polarized stokes I for the unpolarized stokes I
-                I_th_unpol = pwd.replace("dust_polarization", "dust_emission")
-                try:
-                    I = fits.getdata(I_th_unpol + "/" + filename)[0][0]
-                except OSError:
-                    raise FileNotFoundError(
-                        f'File with thermal flux does not exist.\n\
-											File: {I_th_unpol+"/"+filename}'
-                    )
+            if 'dust_alignment' in pwd:
+                scattered_file = pwd.replace("dust_alignment", "dust_scattering")
+            elif 'dust_emission' in pwd:
+                scattered_file = pwd.replace("dust_emission", "dust_scattering")
+            elif 'dust_mc' in pwd:
+                scattered_file = pwd.replace("dust_mc", "dust_th")
 
-            else:
-                selfscat_file = pwd.replace("dust_emission", "dust_scattering")
-
+            print_(f"File: {scattered_file + '/' + filename}", bold=True)
             try:
-                I_ss = fits.getdata(selfscat_file + "/" + filename)[0][0]
+                I_ss = fits.getdata(scattered_file + "/" + filename)[0][0]
             except OSError:
                 raise FileNotFoundError(
-                    f'File with self-scattered flux does not exist.\n\
-										File: {selfscat_file+"/"+filename}'
+                    f'File with scattered flux does not exist.\n\
+										File: {scattered_file+"/"+filename}'
                 )
-    elif isinstance(add_selfscat, (str,PosixPath)):
-        try:
-            I_ss = fits.getdata(add_selfscat)
-        except OSError:
-            raise FileNotFoundError(
-                f"File with self-scattered flux does not exist.\n\
-									File: {add_selfscat}"
-            )
+    # If not provided, set to zero
     else:
         I_ss = np.zeros(I.shape)
+
 
     # Add all sources of flux: direct thermal and scattered emission
     I = I + I_th + I_ss
@@ -1137,6 +1133,9 @@ def polarization_map(
             pfrac = np.divide(pi, I, where=I != 0)
         elif polarization in ['circular', 'c']:
             pfrac = V / I
+
+    # Mask the polarization vectors with almost no inclination
+    #pangle[pangle < 5] = np.NaN
 
     # Edit the header to match the observation from IRAS16293B
     hdr = set_hdr_to_iras16293B(hdr, keep_wcs=True, verbose=True)
@@ -1575,8 +1574,6 @@ def tau_surface(
     convolve=True, 
     plot2D=False, 
     plot3D=True, 
-    cache=False, 
-    reload=False, 
     savefig=None, 
     verbose=True
 ):
@@ -1589,75 +1586,50 @@ def tau_surface(
     densfile = Path(prefix/Path(densfile))
     tempfile = Path(prefix/Path(tempfile))
 
-    # Load data from cache
-    tempfile_temp = prefix/Path('.temp_3d.fits')
-    tempfile_op1mm = prefix/Path('.tau1mm_3d.fits')
-    tempfile_op3mm = prefix/Path('.tau3mm_3d.fits')
+    from astropy.nddata.blocks import block_reduce
 
-    if not reload and cache and \
-        os.path.exists(tempfile_temp) and \
-        os.path.exists(tempfile_op1mm) and \
-        os.path.exists(tempfile_op3mm) and \
-        bin_factor == fits.getheader(tempfile_temp)['binning']:        
+    print_('Reading data from FITS file', verbose)
+    rho = fits.getdata(densfile).squeeze() * (u.kg/u.m**3)
+    temp = fits.getdata(tempfile).squeeze()
+    hdr = fits.getheader(densfile)
 
-        print_('Reading data from cache', verbose)
-        temp = fits.getdata(tempfile_temp)
-        op_depth_1mm = fits.getdata(tempfile_op1mm)
-        op_depth_3mm = fits.getdata(tempfile_op3mm)
-        print_(f'Data binned by a factor of {bin_factor}. Shape: {op_depth_3mm.shape}', verbose)
+    # Bin the array down before plotting, if required
+    if bin_factor not in [1, [1,1,1]]:
+        if isinstance(bin_factor, (int, float)):
+            bin_factor = [bin_factor, bin_factor, bin_factor]
 
-    # If not stored, read original data
-    else:
-        from astropy.nddata.blocks import block_reduce
+        print_(f'Original array shape: {temp.shape}', verbose)
 
-        print_('Reading data from FITS file', verbose)
-        rho = fits.getdata(densfile).squeeze() * (u.kg/u.m**3)
-        temp = fits.getdata(tempfile).squeeze()
-        hdr = fits.getheader(densfile)
+        print_(f'Binning density grid ...', verbose)
+        rho = block_reduce(rho, bin_factor, func=np.nanmean)
+        hdr['cdelt3'] *= bin_factor[0]
 
-        # Bin the array down before plotting, if required
-        if bin_factor not in [1, [1,1,1]]:
-            if isinstance(bin_factor, (int, float)):
-                bin_factor = [bin_factor, bin_factor, bin_factor]
+        print_(f'Binning temperature grid ...', verbose)
+        temp = block_reduce(temp, bin_factor, func=np.nanmean)
 
-            print_(f'Original array shape: {rho.shape}', verbose)
+        print_(f'Binned array shape: {temp.shape}', verbose)
 
-            print_(f'Binning density grid ...', verbose)
-            rho = block_reduce(rho, bin_factor, func=np.nanmean)
+    # Dust opacities for a mixture of silicates and graphites
+    if amax == '10um':
+        # Extinction opacity at 1.3 and 3 mm for amax = 10um
+        kappa_1mm = 0.149765 * (u.m**2/u.kg)
+        kappa_3mm = 0.058061 * (u.m**2/u.kg)
+    elif amax == '100um':
+        # Extinction opacity at 1.3 and 3 mm for amax = 1000um
+        kappa_1mm = 0.228971 * (u.m**2/u.kg)
+        kappa_3mm = 0.074914 * (u.m**2/u.kg)
+    elif amax == '1000um':
+        # Extinction opacity at 1.3 and 3 mm for amax = 1000um
+        kappa_1mm = 1.287900 * (u.m**2/u.kg)
+        kappa_3mm = 0.603334 * (u.m**2/u.kg)
 
-            print_(f'Binning temperature grid ...', verbose)
-            temp = block_reduce(temp, bin_factor, func=np.nanmean)
-
-            print_(f'Binned array shape: {rho.shape}', verbose)
-
-            # Dust opacities for a mixture of silicates and graphites
-            if amax == '10um':
-                # Extinction opacity at 1.3 and 3 mm for amax = 10um
-                kappa_1mm = 0.149765 * (u.m**2/u.kg)
-                kappa_3mm = 0.058061 * (u.m**2/u.kg)
-            elif amax == '100um':
-                # Extinction opacity at 1.3 and 3 mm for amax = 1000um
-                kappa_1mm = 0.228971 * (u.m**2/u.kg)
-                kappa_3mm = 0.074914 * (u.m**2/u.kg)
-            elif amax == '1000um':
-                # Extinction opacity at 1.3 and 3 mm for amax = 1000um
-                kappa_1mm = 1.287900 * (u.m**2/u.kg)
-                kappa_3mm = 0.603334 * (u.m**2/u.kg)
-
-            # Surface density
-            dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
-            rho = (gas2dust / 100) * rho
-            sigma_3d = np.cumsum(rho * dl, axis=0)
-            op_depth_1mm = (sigma_3d * kappa_1mm).value
-            op_depth_3mm = (sigma_3d * kappa_3mm).value
-            rho = rho.value
-
-            # Cache the binned arrays for faster future access
-            hdr['binning'] = bin_factor[0]
-            write_fits(tempfile_temp, data=temp, header=hdr, verbose=True)  
-            write_fits(tempfile_op1mm, data=op_depth_1mm, header=hdr, verbose=True)  
-            write_fits(tempfile_op3mm, data=op_depth_3mm, header=hdr, verbose=True)  
-            
+    # Surface density
+    dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
+    rho = (gas2dust / 100) * rho
+    sigma_3d = np.cumsum(rho * dl, axis=0)
+    op_depth_1mm = (sigma_3d * kappa_1mm).value
+    op_depth_3mm = (sigma_3d * kappa_3mm).value
+    rho = rho.value
 
     if plot2D and not plot3D:
         from astropy.convolution import convolve, convolve_fft, Gaussian2DKernel
@@ -1689,6 +1661,7 @@ def tau_surface(
             return std_x, std_y, bpa
             
         if convolve:
+            print_('Convolving 2D temperature maps', verbose=True)
             std_x, std_y, bpa = fwhm_to_std(Observation('1.3mm'))
             Td_tau1_1mm = convolve_fft(Td_tau1_1mm, Gaussian2DKernel(std_x, std_y, bpa))
 
@@ -1719,8 +1692,8 @@ def tau_surface(
             temp, 
             colormap='inferno', 
             opacity=.3, 
-            vmin=90, 
-            vmax=400, 
+            vmin=90 if 'ilees' in str(pwd) else None, 
+            vmax=400 if 'ilees' in str(pwd) else None, 
             contours=10, 
         )
         figcb = mlab.colorbar(
