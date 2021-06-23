@@ -572,11 +572,45 @@ def read_zeusTW(frame):
     """
     
     class Data:
-        def read(self, filename, shape=None):
+        def read(self, filename, coord=False):
+            """ Read the binary files from zeusTW.
+                Reshape to 3D only if it is a physical quantity and not a coordinate.
+            """
+            # Load binary file
             with open(filename, "rb") as binfile:
                 data = np.fromfile(file=binfile, dtype=np.double, count=-1)
 
-            return data.reshape(shape, order='F') if shape is not None else data
+            if coord:
+                return data
+            else:
+                shape = (self.r.size, self.th.size, self.ph.size)
+                return data.reshape(shape, order='F')
+
+        def generate_coords(self, r, th, ph):
+            self.r = self.read(r, coord=True)
+            self.th = self.read(th, coord=True)
+            self.ph = self.read(ph, coord=True)
+
+        def trim_ghost_cells(self, field_type, ng=3):
+            if field_type == 'coords':
+                # Trim ghost zones for the coordinate fields
+                self.r = self.r[ng:-ng]
+                self.th = self.th[ng:-ng]
+                self.ph = self.ph[ng:-ng]
+
+            elif field_type == 'scalar':
+                # Trim ghost cells for scalar fields
+                self.rho = self.rho[ng:-ng, ng:-ng, ng:-ng]
+
+            elif field_type == 'vector':
+                # Trim ghost cells for vector fields
+                self.Vr = 0.5 * (self.Vr[ng:-ng, ng:-ng, ng:-ng] + self.Vr[ng+1:-ng+1, ng:-ng, ng:-ng])
+                self.Vth = 0.5 * (self.Vth[ng:-ng, ng:-ng, ng:-ng] + self.Vth[ng:-ng, ng+1:-ng+1, ng:-ng])
+                self.Vph = 0.5 *  (self.Vph[ng:-ng, ng:-ng, ng:-ng] + self.Vph[ng:-ng, ng:-ng, ng+1:-ng+1])
+
+                self.Br = 0.5 * (self.Br[ng:-ng, ng:-ng, ng:-ng] + self.Br[ng+1:-ng+1, ng:-ng, ng:-ng])
+                self.Bth = 0.5 * (self.Bth[ng:-ng, ng:-ng, ng:-ng] + self.Bth[ng:-ng, ng+1:-ng+1, ng:-ng])
+                self.Bph = 0.5 * (self.Bph[ng:-ng, ng:-ng, ng:-ng] + self.Bph[ng:-ng, ng:-ng, ng+1:-ng+1])
         
         def generate_temperature(self):
             """ Formula taken from Appendix A Zhao et al. (2018). """
@@ -588,49 +622,64 @@ def read_zeusTW(frame):
             T2 = np.where(self.rho >= 10*rho_cr, (T0+15) * (self.rho/rho_cr/10)**0.6, T1)
             T3 = np.where(self.rho >= 100*rho_cr, 10**0.6 * (T0+15) * (self.rho/rho_cr/100)**0.44, T2)
             self.temp = T3
+    
+        def LH_to_Gaussian(self):
+            self.Br *= np.sqrt(4 * np.pi)
+            self.Bth *= np.sqrt(4 * np.pi)
+            self.Bph *= np.sqrt(4 * np.pi)
+        
+        def generate_cartesian(self):
+            """ Convert spherical coordinates and vector components from spherical to cartesian. """
+            # Create a coordinate grid.
+            r, th, ph = np.meshgrid(self.r, self.th, self.ph, indexing='ij')
+
+            # Convert coordinates to cartesian
+            self.x = r * np.cos(ph) * np.sin(th)
+            self.y = r * np.sin(ph) * np.sin(th)
+            self.z = r * np.cos(th)
+
+            # Transform vector components to cartesian
+            self.Vx = self.Vr * np.sin(th) * np.cos(ph) + self.Vth * np.cos(th) * np.cos(ph) - self.Vph * np.sin(ph)
+            self.Vy = self.Vr * np.sin(th) * np.sin(ph) + self.Vth * np.cos(th) * np.sin(ph) + self.Vph * np.cos(ph)
+            self.Vz = self.Vr * np.cos(th) - self.Vth * np.sin(th)
+
+            self.Bx = self.Br * np.sin(th) * np.cos(ph) + self.Bth * np.cos(th) * np.cos(ph) - self.Bph * np.sin(ph)
+            self.By = self.Br * np.sin(th) * np.sin(ph) + self.Bth * np.cos(th) * np.sin(ph) + self.Bph * np.cos(ph)
+            self.Bz = self.Br * np.cos(th) - self.Bth * np.sin(th)
+
+    # Generate a Data instance
+    data = Data()
 
     # Read coordinates: x?a are cell edges and x?b are cell centers
-    data = Data()
-    r = data.read("z_x1ap")
-    th = data.read("z_x2ap")
-    ph = data.read("z_x3ap")
-    shape = (r.size, th.size, ph.size)
+    data.generate_coords(r="z_x1ap", th="z_x2ap", ph="z_x3ap")
 
     # Read Data
     frame = str(frame).zfill(5)
-    rho = data.read(f"o_d__{frame}", shape)
-    Br = data.read(f"o_b1_{frame}", shape)
-    Bth = data.read(f"o_b2_{frame}", shape)
-    Bph = data.read(f"o_b3_{frame}", shape)
-    Vr = data.read(f"o_v1_{frame}", shape)
-    Vth = data.read(f"o_v2_{frame}", shape)
-    Vph = data.read(f"o_v3_{frame}", shape)
+    data.rho = data.read(f"o_d__{frame}")
+    data.Br = data.read(f"o_b1_{frame}")
+    data.Bth = data.read(f"o_b2_{frame}")
+    data.Bph = data.read(f"o_b3_{frame}")
+    data.Vr = data.read(f"o_v1_{frame}")
+    data.Vth = data.read(f"o_v2_{frame}")
+    data.Vph = data.read(f"o_v3_{frame}")
 
     # Trim ghost zones for the coordinate fields
-    ng = 3
-    data.r = r[ng:-ng]
-    data.th = th[ng:-ng]
-    data.ph = ph[ng:-ng]
+    data.trim_ghost_cells(field_type='coords')
 
     # Trim ghost cells for scalar fields
-    data.rho = rho[ng:-ng, ng:-ng, ng:-ng]
+    data.trim_ghost_cells(field_type='scalar')
 
     # Trim ghost cells for vector fields
-    data.Vr = 0.5 * (Vr[ng:-ng, ng:-ng, ng:-ng] + Vr[ng+1:-ng+1, ng:-ng, ng:-ng])
-    data.Vth = 0.5 * (Vth[ng:-ng, ng:-ng, ng:-ng] + Vth[ng:-ng, ng+1:-ng+1, ng:-ng])
-    data.Vph = 0.5 *  (Vph[ng:-ng, ng:-ng, ng:-ng] + Vph[ng:-ng, ng:-ng, ng+1:-ng+1])
-
-    data.Br = 0.5 * (Br[ng:-ng, ng:-ng, ng:-ng] + Br[ng+1:-ng+1, ng:-ng, ng:-ng])
-    data.Bth = 0.5 * (Bth[ng:-ng, ng:-ng, ng:-ng] + Bth[ng:-ng, ng+1:-ng+1, ng:-ng])
-    data.Bph = 0.5 * (Bph[ng:-ng, ng:-ng, ng:-ng] + Bph[ng:-ng, ng:-ng, ng+1:-ng+1])
+    data.trim_ghost_cells(field_type='vector')
 
     # Convert from Lorent-Heaviside to Gaussian system
-    data.Br *= np.sqrt(4 * np.pi)
-    data.Bth *= np.sqrt(4 * np.pi)
-    data.Bph *= np.sqrt(4 * np.pi)
+    data.LH_to_Gaussian()
 
     # Generate the temperature field using a barotropic Equation of State
     data.generate_temperature()
+
+    # Generate cartesian coordinates
+    data.generate_cartesian()
 
     return data
 
