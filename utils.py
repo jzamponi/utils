@@ -556,10 +556,81 @@ def read_sph(snapshot="snap_541.dat"):
     outlier_index = 31330
     """
 
+    # Read file in binary format
     with open(snapshot, "rb") as f:
         names = f.readline()[1:].split()
         data = np.fromstring(f.read()).reshape(-1, len(names))
         data = data.astype("f4")
+
+    return data
+
+
+def read_zeusTW(frame):
+    """
+    Read in raw snapshots from ZeusTW and return a numpy array.
+    This function is simply an adapted copy of Zeus2Polaris._read_data().
+    """
+    
+    class Data:
+        def read(self, filename, shape=None):
+            with open(filename, "rb") as binfile:
+                data = np.fromfile(file=binfile, dtype=np.double, count=-1)
+
+            return data.reshape(shape, order='F') if shape is not None else data
+        
+        def generate_temperature(self):
+            """ Formula taken from Appendix A Zhao et al. (2018). """
+            rho_cr = 1e-13
+            csound = 1.88e-4
+            mu = 2.36
+            T0 = csound**2 * mu * c.m_p.cgs.value / c.k_B.cgs.value
+            T1 = T0 + 1.5 * self.rho/rho_cr
+            T2 = np.where(self.rho >= 10*rho_cr, (T0+15) * (self.rho/rho_cr/10)**0.6, T1)
+            T3 = np.where(self.rho >= 100*rho_cr, 10**0.6 * (T0+15) * (self.rho/rho_cr/100)**0.44, T2)
+            self.temp = T3
+
+    # Read coordinates: x?a are cell edges and x?b are cell centers
+    data = Data()
+    r = data.read("z_x1ap")
+    th = data.read("z_x2ap")
+    ph = data.read("z_x3ap")
+    shape = (r.size, th.size, ph.size)
+
+    # Read Data
+    frame = str(frame).zfill(5)
+    rho = data.read(f"o_d__{frame}", shape)
+    Br = data.read(f"o_b1_{frame}", shape)
+    Bth = data.read(f"o_b2_{frame}", shape)
+    Bph = data.read(f"o_b3_{frame}", shape)
+    Vr = data.read(f"o_v1_{frame}", shape)
+    Vth = data.read(f"o_v2_{frame}", shape)
+    Vph = data.read(f"o_v3_{frame}", shape)
+
+    # Trim ghost zones for the coordinate fields
+    ng = 3
+    data.r = r[ng:-ng]
+    data.th = th[ng:-ng]
+    data.ph = ph[ng:-ng]
+
+    # Trim ghost cells for scalar fields
+    data.rho = rho[ng:-ng, ng:-ng, ng:-ng]
+
+    # Trim ghost cells for vector fields
+    data.Vr = 0.5 * (Vr[ng:-ng, ng:-ng, ng:-ng] + Vr[ng+1:-ng+1, ng:-ng, ng:-ng])
+    data.Vth = 0.5 * (Vth[ng:-ng, ng:-ng, ng:-ng] + Vth[ng:-ng, ng+1:-ng+1, ng:-ng])
+    data.Vph = 0.5 *  (Vph[ng:-ng, ng:-ng, ng:-ng] + Vph[ng:-ng, ng:-ng, ng+1:-ng+1])
+
+    data.Br = 0.5 * (Br[ng:-ng, ng:-ng, ng:-ng] + Br[ng+1:-ng+1, ng:-ng, ng:-ng])
+    data.Bth = 0.5 * (Bth[ng:-ng, ng:-ng, ng:-ng] + Bth[ng:-ng, ng+1:-ng+1, ng:-ng])
+    data.Bph = 0.5 * (Bph[ng:-ng, ng:-ng, ng:-ng] + Bph[ng:-ng, ng:-ng, ng+1:-ng+1])
+
+    # Convert from Lorent-Heaviside to Gaussian system
+    data.Br *= np.sqrt(4 * np.pi)
+    data.Bth *= np.sqrt(4 * np.pi)
+    data.Bph *= np.sqrt(4 * np.pi)
+
+    # Generate the temperature field using a barotropic Equation of State
+    data.generate_temperature()
 
     return data
 
@@ -799,7 +870,7 @@ def add_comment(filename, comment):
     """
     Read in a fits file and add a new keyword to the header.
     """
-    data, hdr = fits.getdata(filename, header=True)
+    data, header = fits.getdata(filename, header=True)
 
     header["NOTE"] = comment
 
@@ -810,9 +881,9 @@ def edit_keyword(filename, key, value, verbose=True):
     """
     Read in a fits file and change the value of a given keyword.
     """
-    data, hdr = fits.getdata(filename, header=True)
+    data, header = fits.getdata(filename, header=True)
 
-    value_ = hdr.get(key, default=None)
+    value_ = header.get(key, default=None)
     if value_ is None:
         print_(f"Keyword {key} unexistent. Adding it ...", verbose=verbose)
 
@@ -820,9 +891,9 @@ def edit_keyword(filename, key, value, verbose=True):
         print_(f"Keyword {key} already exists.", verbose=verbose)
         print_(f"Changing it from {value_} to {value}.", verbose=verbose)
 
-    hdr[key] = value
+    header[key] = value
 
-    write_fits(filename, data=data, header=hdr, overwrite=True)
+    write_fits(filename, data=data, header=header, overwrite=True, verbose=True)
 
 @elapsed_time
 def plot_map(
@@ -961,11 +1032,13 @@ def polarization_map(
     savefig=None,
     show=True,
     vector_color="white",
+    vector_width=1, 
     add_thermal=False,
     add_scattered=False,
     add_bfield=False,
     const_bfield=False,
     const_pfrac=False,
+    rescale=None, 
     verbose=True,
     *args,
     **kwargs,
@@ -1112,6 +1185,7 @@ def polarization_map(
             y *= -1.0
         # Polarization angle calculated from Q and U components
         pol_angle = np.arctan2(y, x)
+
         return pol_angle
 
     # Compute the polarization angle 
@@ -1120,8 +1194,10 @@ def polarization_map(
         for qj, uj in zip(range(Q.shape[1]), range(U.shape[1])):
             pangle[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])
 
+    # pangle_arctan = 0.5 * np.arctan2(U, Q)
     pangle = pangle * u.rad.to(u.deg)
 
+	
     # Compute the polarized intensity
     pi = np.sqrt(U**2 + Q**2)
 
@@ -1135,7 +1211,7 @@ def polarization_map(
             pfrac = V / I
 
     # Mask the polarization vectors with almost no inclination
-    #pangle[pangle < 5] = np.NaN
+    pangle[pfrac < 0.005] = np.NaN
 
     # Edit the header to match the observation from IRAS16293B
     hdr = set_hdr_to_iras16293B(hdr, keep_wcs=True, verbose=True)
@@ -1146,39 +1222,40 @@ def polarization_map(
         write_fits(f + ".fits", d, hdr)
 
     # Select the quantity to plot
+    unit = r'($\mu$Jy/pixel)' if rescale is None else '(Jy/pixel)'
     if render.lower() in ["i", "intensity"]:
         figname = "I.fits"
-        cblabel = r"Stokes I ($\mu$Jy/pixel)"
+        cblabel = f"Stokes I {unit}"
         # Rescale to micro Jy/px
-        rescale = 1e6
+        rescale = 1e6 if rescale is None else rescale
 
     elif render.lower() in ["q"]:
         figname = "Q.fits"
-        cblabel = r"Stokes Q ($\mu$Jy/pixel)"
+        cblabel = f"Stokes Q {unit}"
         # Rescale to micro Jy/px
-        rescale = 1e6
+        rescale = 1e6 if rescale is None else rescale
 
     elif render.lower() in ["u"]:
         figname = "U.fits"
-        cblabel = r"Stokes U ($\mu$Jy/pixel)"
+        cblabel = f"Stokes U {unit}"
         # Rescale to micro Jy/px
-        rescale = 1e6
+        rescale = 1e6 if rescale is None else rescale
 
     elif render.lower() in ["tau", "optical depth"]:
         figname = "tau.fits"
-        cblabel = r"Optical depth"
-        rescale = 1
+        cblabel = "Optical depth"
+        rescale = 1 if rescale is None else rescale
 
     elif render.lower() in ["pi", "poli", "polarized intensity"]:
         figname = "pi.fits"
-        cblabel = r"Polarized intensity ($\mu$Jy/pixel)"
+        cblabel = f"Polarized intensity {unit}"
         # Rescale to micro Jy/px
-        rescale = 1e6
+        rescale = 1e6 if rescale is None else rescale
 
     elif render.lower() in ["pf", "pfrac", "polarization fraction"]:
         figname = "pfrac.fits"
-        cblabel = r"Polarization fraction"
-        rescale = 1
+        cblabel = "Polarization fraction"
+        rescale = 1 if rescale is None else rescale
 
     else:
         rescale = 1
@@ -1201,6 +1278,7 @@ def polarization_map(
         scale=scale,
         rotate=rotate,
         color=vector_color,
+        linewidth=vector_width, 
         units='degrees', 
         layer="pol_vectors",
     )
