@@ -1,10 +1,10 @@
 """
 	- Figure 1: Observations at 3mm, 1.3mm and spectral index.
-	- Figure 2: Density xy & zx projections of Bo's disk and Ilee's disk
+	- Figure 2: Density xy & zx projections of the MHD disk and RHD disk
 	- Figure 3: Dust opacities for several a_max with a silicate & graphite composition.
 	- Figure 4: Dust temperature radial profiles for Tgas, Protostellar heating and combined.
-	- Figure 5: Horizontal cuts for Bo's disk.
-	- Figure 6: Horizontal cuts for Ilee's disk.
+	- Figure 5: Horizontal cuts for MHD disk.
+	- Figure 6: Horizontal cuts for RHD disk.
 	- Figure 7: Simulated observations at 3mm, 1.3mm and spectral index.
     - Figure 8: Dust temperature at the tau = 1 surface
     Figsize two-column: 18cm x 5.5cm = 3*2.36in x 2.17in
@@ -95,15 +95,15 @@ def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
     return utils.plot_checkout(fig, show, savefig=savefig, path=home/'phd/plots/paper1')
 
 
-def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_aplpy=False):
+def plot_disk_model(model='rhd', show=True, savefig=None, figsize=(8,6.8), use_aplpy=False):
     """ Figure 2 """
     from matplotlib.colors import LogNorm
     
     # Set the global path
-    if 'bo' in model:
+    if model == 'mhd':
         filename = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc'
-    elif 'ilee' in model: 
-        filename = home/'phd/ilees_disk/results/dust_emission/temp_eos/sg'
+    elif model == 'rhd': 
+        filename = home/'phd/rhd_disk/results/dust_emission/temp_eos/sg'
 
     # Read the data
     data, hdr = fits.getdata(filename/'amax10um/3mm/0deg/data/input_midplane.fits.gz', header=True)
@@ -172,11 +172,11 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
 
         # Set the plot scales
         min_d = 1e-15
-        min_t = 8 if model == 'bo' else 80
+        min_t = 8 if model == 'mhd' else 80
         max_d = 2e-10
-        max_t = None if model == 'bo' else None
+        max_t = None if model == 'mhd' else None
         density_ticks = [1e-15, 1e-14, 1e-13, 1e-12, 1e-11, 1e-10]
-        temperature_ticks = [1e1, 1e2] if model == 'bo' else [1e2, 1e3]
+        temperature_ticks = [1e1, 1e2] if model == 'mhd' else [1e2, 1e3]
 
         plt.rcParams['image.interpolation'] = 'bicubic'
         cmap_d = 'BuPu'
@@ -234,7 +234,7 @@ def plot_disk_model(model='bo', show=True, savefig=None, figsize=(8,6.8), use_ap
     return utils.plot_checkout(fig, show, savefig, path=home/'phd/plots/paper1/')
 
 
-def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
+def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg', add_albedo=False):
     """ Figure 3 """
 
     def read_opac(amax, kappa):
@@ -264,7 +264,7 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
     abs_line = p[0].plot([],[], ls='-',  color='black', label=r'Absorption')
     sca_line = p[0].plot([],[], ls='--', color='black',  label=r'Scattering')
 
-    # Upper panel: absorption and scattering opacitites
+    # Plot absorption and scattering opacitites
     abs_p10 = p[0].loglog(
         lam, 
         read_opac('1um','abs'), 
@@ -319,6 +319,7 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
         ls='--', color='tab:blue'
     )
 
+    # Upper panel: opacities
     p[0].axvline(1.3e3, ls=':', color='grey')
     p[0].axvline(3e3, ls=':', color='grey')
     p[0].text(0.9e3, 1e2, '1.3 mm', rotation=90, size=13, color='grey') 
@@ -348,17 +349,19 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg'):
 def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False, nthreads=1):
     """ Figure 4 
 
-        If smooth, it will smooth out the curves by interpolating with a spline3
+        Plot radially averaged midplane temperatures of both models for both 
+        radiative and gas temperatures.
+        If smooth, it will smooth out the curves by interpolating with a spline3 or poly.
     """
 
     prefixes = {
-        'bo' : home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/amax10um', 
-        'ilee' : home/'phd/ilees_disk/results/dust_heating/sg/amax10um',
+        'mhd' : home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/amax10um', 
+        'rhd' : home/'phd/rhd_disk/results/dust_heating/sg/amax10um',
     }
 
     fig, p_ = plt.subplots(nrows=2, ncols=1, figsize=figsize, sharex=True)
 
-    for model, p in zip(['bo', 'ilee'], p_):
+    for model, p in zip(['mhd', 'rhd'], p_):
         prefix = prefixes[model]
 
         for curve in ['rt', 'eos', 'eos_rt']: 
@@ -399,8 +402,7 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
                     )
                     utils.write_fits(tempfile, np.array([r_eos_rt, eos_rt]), overwrite=True)
 
-        # Smooth the curves with a polyfit
-        # TO DO: Try with a spline3
+        # TO DO: Smooth the curves with a polinomial or spline fit
         if smooth:
             pol_order = 5
             fit = lambda x, y: np.poly1d(np.polyfit(x, y, pol_order))(x)
@@ -417,10 +419,8 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
 
         # Customize both panels
         plt.rcParams['font.size'] = 12
-        if model == 'bo':
+        if model == 'mhd':
             p.axvline(1.7, ls='--', c='tab:red', lw=1)
-            #p.text(0.3, 170, 'Central', c='tab:red', size=10)
-            #p.text(0.35, 150, 'hole', c='tab:red', size=10)
             p.annotate(
                 'MHD model', 
                 (0.10,0.82), 
@@ -436,10 +436,7 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.annotate('', xy=(8, 200), xytext=(25, 200), 
                 arrowprops=dict(arrowstyle='|-|', lw=0.5, mutation_scale=1.5))
 
-            # Add temporal curve from a 20Lsun star with single grain size 100um
-            #p.plot(*utils.radial_profile('/home/jz/phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/single100um/20Lsun/data/output_midplane.fits.gz', return_radii=True, nthreads=nthreads), color='blue', label=r'80 cm$^2$/g')
-
-        elif model == 'ilee':
+        elif model == 'rhd':
             p.axhline(1200, ls='--', c='tab:red', lw=1)
             p.text(25, 1100, 'Silicate sublimation', c='tab:red')
             p.annotate(
@@ -456,9 +453,6 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
             p.annotate(r'$Q<1.7$', (17, 650), xycoords="data", c='black', fontsize=11)
             p.annotate('', xy=(7, 600), xytext=(30, 600), 
                 arrowprops=dict(arrowstyle='|-|', lw=0.5, mutation_scale=1.5))
-
-            # Add temporal curve from a 20Lsun star with single grain size 100um
-            #p.plot(*utils.radial_profile('/home/jz/phd/ilees_disk/results/dust_heating/sg/single100um/20Lsun/data/output_midplane.fits.gz', return_radii=True, nthreads=nthreads), color='blue', label=r'80 cm$^2$/g')
 
         p.set_ylabel(r'$T_{\rm dust}$ (K)')
         p.set_xlim(0.0, 40)
@@ -478,16 +472,17 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
         
     """
     
-    if model == 'bo':
+    if model == 'mhd':
         prefix=home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/'
         angles = [0, 10, 20, 30, 40]
 
-    elif model == 'ilee':
-        prefix=home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/'
+    elif model == 'rhd':
+        prefix=home/'phd/rhd_disk/results/dust_emission/temp_eos/sg/'
         angles = [0, 10, 20, 30, 40]
 
     else:
         prefix=''
+        angles = [0, 10, 20, 30, 40]
 
     fig = utils.horizontal_cut(
         angles=angles, 
@@ -521,7 +516,7 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
         plt.xticks([])
         plt.xlabel("")
 
-    elif 'ilee' in str(prefix):
+    elif 'rhd_disk' in str(prefix):
         # Label the panel
         plt.annotate('RHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
 
@@ -530,7 +525,7 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
         plt.axvline(0.07, ls="-", lw=1, alpha=0.1, c="black", zorder=2)
         plt.fill_betweenx(range(800), x1=-0.07, x2=0.07, color='grey', alpha=0.2, 
             zorder=4, hatch='/')
-        plt.ylim(0, 460 if lam=='1.3mm' else 730)
+        plt.ylim(0, 520 if lam=='1.3mm' else 730)
 
         # Annotate the Q<1.7 region (7-30au = 0.05-0.2as)
         plt.annotate(r'$Q<1.7$', (0.62, 0.05), xycoords="axes fraction", c='blue', fontsize=13)
@@ -548,14 +543,14 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
-def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=True, savefig=None, figsize=(17.5,6)):
+def plot_simulated_observations(model='rhd', incl='0deg', amax='10um', show=True, savefig=None, figsize=(17.5,6)):
     """ Figure 6 """
     from aplpy import FITSFigure
 
-    if model == 'bo':
+    if model == 'mhd':
         prefix=Path(home/f'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/amax{amax}/')
-    elif model == 'ilee':
-        prefix=Path(home/f'phd/ilees_disk/results/dust_emission/temp_eos/sg/amax{amax}/')
+    elif model == 'rhd':
+        prefix=Path(home/f'phd/rhd_disk/results/dust_emission/temp_eos/sg/amax{amax}/')
     else:
         prefix=''
 
@@ -569,6 +564,7 @@ def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=Tru
         vmin=0, 
         vmax=None, 
         figure=fig,
+        checkout=False,
         subplot=[0.12, 0.05, 0.25, 0.9], 
     )
     f2 = utils.plot_map(
@@ -579,14 +575,16 @@ def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=Tru
         vmin=0, 
         vmax=None, 
         figure=fig,
+        checkout=False,
         subplot=[0.40, 0.05, 0.25, 0.9], 
     )
     f3 = utils.spectral_index(
         prefix/f'1.3mm/{incl}/data/1.3mm_{incl}_a{amax}_alma.fits', 
-        prefix/f'3mm/{incl}/data/3mm_{incl}_a{amax}_alma_smoothed.fits', 
+        prefix/f'3mm/{incl}/data/3mm_{incl}_a{amax}_alma_robust0_smoothed.fits', 
         figsize=None, 
         vmin=1.7, 
         vmax=3.5, 
+        mask=4e-3 if model == 'rhd' else 1e-4,
         show=False,
         scalebar=20*u.au,
         figure=fig,
@@ -595,7 +593,6 @@ def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=Tru
     )
     simulation_extent = 0.709198230621132
     img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
-    #img_radius = (70*u.au.to(u.pc)/141)*u.rad.to(u.deg)
 
     for f,lam in zip([f1,f2], ['1.3mm', '3mm']):
         f.recenter(248.0942916667, -24.47550000000, radius=img_radius)
@@ -616,7 +613,7 @@ def plot_simulated_observations(model='ilee', incl='0deg', amax='10um', show=Tru
 
     f1.axis_labels.set_ytext('Declination (J2000)')
     f3.recenter(248.0942916667, -24.47550000000, radius=img_radius)
-    f3.add_beam(edgecolor='white', facecolor='none', linewidth=1)
+    f3.add_beam(edgecolor='black', facecolor='none', linewidth=1)
     f3.scalebar.set_color('#af5606')
     f3.ticks.set_color('black')
     f3.ticks.set_length(7)
@@ -633,7 +630,7 @@ def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None,
     # Compute the 2D Tdust distribution at 1.3 and 3 mm
     Td_tau1_1mm, Td_tau1_3mm = utils.tau_surface(
         tau=tau, 
-        prefix=home/'phd/ilees_disk/results/dust_heating/sg/amax10um/temp_offset/data', 
+        prefix=home/'phd/rhd_disk/results/dust_heating/sg/amax10um/temp_offset/data', 
         bin_factor=bin_factor, 
         plot2D=True,
         plot3D=False,
@@ -643,8 +640,6 @@ def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None,
 
     # Select which tau surface to plot
     temp2D = Td_tau1_1mm if lam == '1.3mm' else Td_tau1_3mm
-
-    utils.print_('Plotting using APLPy', True)
 
     # Generate the figure with APLPy
     fig = utils.plot_map(
@@ -662,8 +657,6 @@ def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None,
     # Customize the plots        
     simulation_extent = 0.709198230621132
     img_radius = (simulation_extent/2)*u.arcsec.to(u.deg)
-    #fig.recenter(248.0942916667, -24.47550000000, radius=img_radius)
-    #fig.add_beam(edgecolor='white', facecolor='none', linewidth=1)
     fig.ticks.set_color('white')
     fig.ticks.set_length(7)
     fig.ticks.set_linewidth(2)
@@ -744,6 +737,7 @@ def plot_disk_mass(show=True, savefig=None, figsize=(4.5, 3.5)):
     plt.axhline(1, ls=':', color='grey', alpha=0.7, lw=1.2)
     plt.annotate(r'$S_{\rm 1.3\,mm}$', xy=(0.8, 0.1), xycoords='axes fraction', size=15)
     plt.annotate(r'$S_{\rm 3\,mm}$', xy=(0.8, 0.3), xycoords='axes fraction', size=15)
+    plt.annotate(r'$M_{\rm model} = 0.3\,$M$_{\odot}$', xy=(70, 1.05), xycoords='data', size=13)
 
     plt.ylabel(r'$M_{\rm op.\,thin} / M_{\rm model}$')
     plt.xlabel(r'Dust temperature (K)')
@@ -755,6 +749,29 @@ def plot_disk_mass(show=True, savefig=None, figsize=(4.5, 3.5)):
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
+def plot_spectral_index_map_unconvolved(show=True, savefig=None, *args, **kwargs):
+    """ Plot the spectral index map from the polaris output, in full resolution, namely,
+        with no beam convolution.
+    """
+    # Read data
+    prefix = Path(home/'phd/rhd_disk/results/dust_emission/temp_eos/sg/amax10um')
+
+    # Generate spectral index map
+    fig = utils.spectral_index(
+        prefix/'1.3mm/0deg/data/1.3mm_0deg_a10um.fits', 
+        prefix/'3mm/0deg/data/3mm_0deg_a10um.fits',
+        return_fig=True,
+        *args,
+        **kwargs
+    )
+    
+    # Add a dashed line to indicate the region where the cut is extracted
+    fig.ax.axvline(x=150, ymin=0.05, ymax=0.95, ls='--', lw=1.5, color='tab:blue')
+    plt.tight_layout()
+    
+    return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
+    
+
 def plot_spectral_index_slice(show=True, savefig=None, figsize=(6,4.5)):
     """ Plot the vertical cut of the spectral index for the ALMA observation and for 
         the face-on RHD model. Figure for the appendix. 
@@ -762,7 +779,7 @@ def plot_spectral_index_slice(show=True, savefig=None, figsize=(6,4.5)):
     
     # Read data
     obs = utils.Observation('3mm')
-    prefix = Path(home/'phd/ilees_disk/results/dust_emission/temp_eos/sg/amax10um/')
+    prefix = Path(home/'phd/rhd_disk/results/dust_emission/temp_eos/sg/amax10um/')
     
     # Read brightness temperatures 
     intensity_model = fits.getdata(prefix/'3mm/0deg/data/3mm_0deg_a10um.fits').squeeze()

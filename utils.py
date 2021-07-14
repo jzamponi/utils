@@ -961,6 +961,7 @@ def plot_map(
     contours=False, 
     show=True, 
     savefig=None, 
+    checkout=True, 
     *args,
     **kwargs,
 ):
@@ -978,6 +979,7 @@ def plot_map(
         hdr = header
 
     # Remove non-celestial WCS
+    filename_ = filename
     if hdr.get("NAXIS") > 2:
         tempfile = '.temp_file.fits'
         # <patch>
@@ -991,16 +993,19 @@ def plot_map(
 
     # Convert Jy/beam into Kelvin if required
     if bright_temp:
-        rescale = Tb(
-            data=rescale,
-            freq=hdr.get("RESTFRQ") * u.Hz.to(u.GHz),
-            bmin=hdr.get("bmin") * u.deg.to(u.arcsec),
-            bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
-        )
+        try:
+            rescale = Tb(
+                data=rescale,
+                freq=hdr.get("RESTFRQ") * u.Hz.to(u.GHz),
+                bmin=hdr.get("bmin") * u.deg.to(u.arcsec),
+                bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
+            )
+        except Exception as e:
+            print_('Beam keywords not available. Impossible to convert into T_b.', verbose=True, bold=True)
 
     # Initialize the figure
-    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize)
-    fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin, stretch=stretch, *args, **kwargs)
+    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
+    fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin, stretch=stretch)
     
     # Add contours if requested
     if contours:
@@ -1041,8 +1046,10 @@ def plot_map(
     fig.ticks.set_minor_frequency(5)
 
     # Hide ticks and labels if FITS file is not a real obs.
-    fig.axis_labels.hide()
-    fig.tick_labels.hide()
+    if "alma" not in str(filename_):
+        print_(f'File: {filename_}. Hiding axis ticks and labels', True)
+        fig.axis_labels.hide()
+        fig.tick_labels.hide()
 
     # Scalebar
     # TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
@@ -1062,9 +1069,7 @@ def plot_map(
     # Delete the temporary file created to get rid of extra dimensions
     if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
 
-    plt.tight_layout()
-
-    return plot_checkout(fig, show, savefig)
+    return plot_checkout(fig, show, savefig) if checkout else fig
 
 
 @elapsed_time
@@ -1235,32 +1240,37 @@ def polarization_map(
         # Polarization angle calculated from Q and U components
         pol_angle = np.arctan2(y, x)
 
-        return pol_angle
+        return pol_angle, x, y
 
     # Compute the polarization angle 
     pangle = np.zeros(Q.shape)
+    x = np.zeros(Q.shape)
+    y = np.zeros(Q.shape)
     for qi, ui in zip(range(Q.shape[0]), range(U.shape[0])):
         for qj, uj in zip(range(Q.shape[1]), range(U.shape[1])):
-            pangle[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])
+            pangle[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[0]
+            x[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[1]
+            y[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[2]
 
+    write_fits('x.fits', x)
+    write_fits('y.fits', y)
     # pangle_arctan = 0.5 * np.arctan2(U, Q)
     pangle = pangle * u.rad.to(u.deg)
-
 	
     # Compute the polarized intensity
     pi = np.sqrt(U**2 + Q**2)
 
     # Compute the polarization fraction 
-    if const_pfrac:
-        pfrac = np.ones(Q.shape)
-    else:
-        if polarization in ['linear', 'l']:
-            pfrac = np.divide(pi, I, where=I != 0)
-        elif polarization in ['circular', 'c']:
-            pfrac = V / I
+    if polarization in ['linear', 'l']:
+        pfrac = np.divide(pi, I, where=I != 0)
+    elif polarization in ['circular', 'c']:
+        pfrac = V / I
 
     # Mask the polarization vectors with almost no inclination
     pangle[pfrac < 0.005] = np.NaN
+
+    # Set the polarization fraction to 100% to plot vectors of constant length
+    pfrac = np.ones(pfrac.shape) if const_pfrac else pfrac
 
     # Edit the header to match the observation from IRAS16293B
     hdr = set_hdr_to_iras16293B(hdr, keep_wcs=True, verbose=True)
@@ -1362,12 +1372,12 @@ def polarization_map(
 def spectral_index(
     lam1_,
     lam2_,
-    beta=False,
     use_aplpy=True,
     cmap="PuOr",
     scalebar=20*u.au,
     vmin=None,
     vmax=None,
+    mask=None,
     figsize=None, 
     show=True,
     savefig=None,
@@ -1388,21 +1398,18 @@ def spectral_index(
     # Calculate the spectral index
     alpha = np.log10(lam1 / lam2) / np.log10(hdr1.get("restfrq") / hdr2.get("restfrq"))
 
-    # Derive the opacity index
-    beta_ = alpha - 2
-
-    # Determine which spectral index to work with
-    index = beta_ if beta else alpha
+    # Mask the spectral index in regions where S_1.3mm < "mask" [Jy/bm]
+    if mask is not None:
+        alpha[lam1 < mask] = np.NaN
 
     # Plot using APLPy if possible, else fallback to Matplotlib
     if use_aplpy:
         try:
             index2file = ".spectral_index.fits"
-            write_fits(index2file, data=index, header=set_hdr_to_iras16293B(hdr1))
-            cblabel_freq = r"$_{ 223-100 {\rm GHz}}$"
+            write_fits(index2file, data=alpha, header=set_hdr_to_iras16293B(hdr1))
             fig = plot_map(
                 index2file,
-                cblabel=r"$\beta$"+cblabel_freq if beta else r"$\alpha$"+cblabel_freq,
+                cblabel=r"$\alpha_{ 223-100 {\rm GHz}}$",
                 scalebar=scalebar,
                 cmap=cmap,
                 vmin=vmin,
@@ -1410,6 +1417,7 @@ def spectral_index(
                 figsize=figsize, 
                 bright_temp=False, 
                 verbose=True,
+                checkout=False, 
                 *args, 
                 **kwargs
             )
@@ -1432,14 +1440,14 @@ def spectral_index(
             spectral_index(lam1_, lam2_, use_aplpy=False, show=show, savefig=savefig)
     else:
         fig = plt.figure(figsize=figsize)
-        index = np.flipud(index)
-        plt.imshow(index, cmap=cmap, vmin=vmin, vmax=vmax)
+        alpha = np.flipud(alpha)
+        plt.imshow(alpha, cmap=cmap, vmin=vmin, vmax=vmax)
         plt.colorbar(pad=0.01).set_label(r"$\alpha_{223-100 {\rm GHz}}$")
-        plt.contour(index, colors='black', levels=[2])
+        plt.contour(alpha, colors='black', levels=[2])
         plt.xticks([])
         plt.yticks([])
 
-    return plot_checkout(fig, show, savefig) if return_fig else index
+    return plot_checkout(fig, show, savefig) if return_fig else alpha
 
 
 def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False):
@@ -1800,7 +1808,13 @@ def tau_surface(
         
     if plot3D:
         from mayavi import mlab
+        from mayavi.api import Engine
+        from mayavi.sources.parametric_surface import ParametricSurface
+        from mayavi.modules.text import Text
 
+        # Initialaze the Mayavi scene
+        engine = Engine()
+        engine.start()
         fig = mlab.figure(size=(1500,1200), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
 
         # Select the quantity to render: density or temperature
@@ -1811,22 +1825,22 @@ def tau_surface(
 
         # Filter the optical depth lying outside of a given temperature isosurface, 
         # e.g., at T > 100 K.
-        op_depth_1mm[temp < 100] = 0
-        op_depth_3mm[temp < 100] = 0
+        op_depth_1mm[temp < 180] = 0
+        op_depth_3mm[temp < 180] = 0
 
         # Plot the temperature
         rendplot = mlab.contour3d(
             temp, 
             colormap='inferno', 
-            opacity=.3, 
-            vmin=90 if 'ilees' in str(pwd) else None, 
-            vmax=400 if 'ilees' in str(pwd) else None, 
-            contours=10, 
+            opacity=0.5, 
+            vmin=90 if 'rhd' in str(pwd) else None, 
+            vmax=400 if 'rhd' in str(pwd) else None, 
+            contours=15, 
         )
         figcb = mlab.colorbar(
             rendplot, 
             orientation='vertical', 
-            title=render['label'],
+            title='',
         )
         # Plot optical depth at 3mm
         tauplot_1mm = mlab.contour3d(
@@ -1842,6 +1856,93 @@ def tau_surface(
             color=(0, 0, 1), 
             opacity=0.7, 
         )
+
+        # The following commands are meant to customize the scene and were 
+        # generated with the recording option of the interactive Mayavi GUI.
+
+        # Adjust the viewing angle for an edge-on projection
+        scene = engine.scenes[0]
+        scene.scene.camera.position = [114.123, -161.129, -192.886]
+        scene.scene.camera.focal_point = [123.410, 130.583, 115.488]
+        scene.scene.camera.view_angle = 30.0
+        scene.scene.camera.view_up = [-0.999, -0.017, 0.014]
+        scene.scene.camera.clipping_range = [90.347, 860.724]
+        scene.scene.camera.compute_view_plane_normal()
+        scene.scene.render()
+
+        # Adjust the light source of the scene to illuminate the disk from the viewer's POV 
+        #camera_light1 = engine.scenes[0].scene.light_manager.lights[0]
+        camera_light1 = scene.scene.light_manager.lights[0]
+        camera_light1.elevation = 90.0
+        camera_light1.intensity = 1.0
+        #camera_light2 = engine.scenes[0].scene_light.manager.lights[1]
+        camera_light2 = scene.scene_light.manager.lights[1]
+        camera_light2.elevation = 90.0
+        camera_light2.elevation = 0.7
+
+        # Customize the iso-surfaces
+        module_manager = engine.scenes[0].children[0].children[0]
+        temp_surface = engine.scenes[0].children[0].children[0].children[0]
+        tau1_surface = engine.scenes[0].children[1].children[0].children[0]
+        tau3_surface = engine.scenes[0].children[2].children[0].children[0]
+        temp_surface.contour.minimum_contour = 100.0 if 'rhd' in str(pwd) else None 
+        temp_surface.contour.maximum_contour = 400.0 if 'rhd' in str(pwd) else None
+        temp_surface.actor.property.representation = 'wireframe'
+        tau1_surface.actor.property.representation = 'wireframe'
+        tau3_surface.actor.property.representation = 'wireframe'
+        temp_surface.actor.property.line_width = 3.0
+        tau1_surface.actor.property.line_width = 3.0
+        tau3_surface.actor.property.line_width = 4.0
+
+        # Adjust the colorbar
+        lut = module_manager.scalar_lut_manager
+        lut.scalar_bar_representation.position = np.array([0.02, 0.2])
+        lut.scalar_bar_representation.position2 = np.array([0.1, 0.63])
+        lut.label_text_property.bold = False
+        lut.label_text_property.italic = False
+        lut.label_text_property.font_family = 'arial'
+        lut.data_range = np.array([70., 400.])
+    
+        # Add labels as text objects to the scene
+        parametric_surface = ParametricSurface()
+        engine.add_source(parametric_surface, scene)        
+
+        label1 = Text()
+        engine.add_filter(label1, parametric_surface)
+        label1.text = 'Dust Temperature (K)'
+        label1.property.font_family = 'arial'
+        label1.property.shadow = True
+        label1.property.color = (0.86, 0.72, 0.21)
+        label1.actor.position = np.array([0.02, 0.85])
+        label1.actor.width = 0.30
+
+        label2 = Text()
+        engine.add_filter(label2, parametric_surface)
+        label2.text = 'Optically thick surface at 1.3mm'
+        label1.property.font_family = 'arial'
+        label2.property.color = (0.31, 0.60, 0.02)
+        label2.actor.position = np.array([0.02, 0.95])
+        label2.actor.width = 0.38
+
+        label3 = Text()
+        engine.add_filter(label3, parametric_surface)
+        label3.text = 'Optically thick surface at 3mm'
+        label2.property.font_family = 'arial'
+        label3.property.color = (0.20, 0.40, 0.64)
+        label3.actor.position = [0.02, 0.915]
+        label3.actor.width = 0.355
+
+        label4 = Text()
+        engine.add_filter(label4, parametric_surface)
+        label4.text = 'Line of Sight'
+        label4.property.font_family = 'times'
+        label4.property.color = (0.8, 0.0, 0.0)
+        label4.actor.position = np.array([0.63, 0.90])
+        label4.actor.width = 0.20
+
+        if savefig is not None:
+            #mlab.savefig(savefig)
+            scene.scene.save(savefig)
 
         return render['render'], op_depth_1mm, op_depth_3mm
 
