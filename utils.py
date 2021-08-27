@@ -271,6 +271,14 @@ def set_hdr_to_iras16293B(
                 "freq": np.float64(42827493999.99999),
                 "freq_res": np.float64(3.515082631882e10),
             },
+            "0.0086": {
+                "freq": np.float64(35e9),
+                "freq_res": np.float64(1.0),
+            },
+            "0.0092": {
+                "freq": np.float64(32.58614e9),
+                "freq_res": np.float64(1.0),
+            },
         }
 
         wl_from_hdr = str(hdr.get("HIERARCH WAVELENGTH1"))
@@ -926,7 +934,7 @@ def add_comment(filename, comment):
     write_fits(filename, data=data, header=header, overwrite=True)
 
 
-def edit_keyword(filename, key, value, verbose=True):
+def edit_header(filename, key, value, verbose=True):
     """
     Read in a fits file and change the value of a given keyword.
     """
@@ -1044,6 +1052,14 @@ def plot_map(
     fig.ticks.set_linewidth(1.2)
     fig.ticks.set_length(6)
     fig.ticks.set_minor_frequency(5)
+
+    # Add Beam
+    if "alma" in str(filename_) or "vla" in str(filename_):
+        fig.add_beam(facecolor='none', edgecolor='white', linewidth=1)
+        bmaj = hdr.get('BMAJ') * u.deg.to(u.arcsec)
+        bmin = hdr.get('BMIN') * u.deg.to(u.arcsec)
+        fig.add_label(0.28, 0.07, f'{bmaj:.1}"x {bmin:.1}"', 
+            relative=True, color='white', size=13)
 
     # Hide ticks and labels if FITS file is not a real obs.
     if "alma" not in str(filename_):
@@ -1252,8 +1268,6 @@ def polarization_map(
             x[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[1]
             y[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[2]
 
-    write_fits('x.fits', x)
-    write_fits('y.fits', y)
     # pangle_arctan = 0.5 * np.arctan2(U, Q)
     pangle = pangle * u.rad.to(u.deg)
 	
@@ -1362,6 +1376,13 @@ def polarization_map(
             zorder=1,
             layer="B_vectors",
         )
+    
+    # Plot the tau = 1 contour when optical depth is plotted    
+    fig.show_contour(
+        'tau.fits', 
+        levels=[1],
+        colors='green',
+    )
 
     if show:
         plt.show()
@@ -1409,7 +1430,7 @@ def spectral_index(
             write_fits(index2file, data=alpha, header=set_hdr_to_iras16293B(hdr1))
             fig = plot_map(
                 index2file,
-                cblabel=r"$\alpha_{ 223-100 {\rm GHz}}$",
+                cblabel="Spectral index",
                 scalebar=scalebar,
                 cmap=cmap,
                 vmin=vmin,
@@ -1422,11 +1443,11 @@ def spectral_index(
                 **kwargs
             )
             # Plot the beam ony if it is an ALMA simulated observation
-            if all(['alma' in [lam1_, lam2_]]): 
+            if all(['alma' in [lam1_, lam2_]]) or all(['vla' in [lam1_, lam2_]]): 
                 fig.show_contour(index2file, colors="black", levels=[1.7, 2, 3])
                 fig.add_beam(facecolor='white', edgecolor='black', linewidth=3)
             else:
-                fig.show_contour(index2file, colors="black", levels=[2])
+                fig.show_contour(index2file, colors="black", levels=[1.7, 2, 3])
 
             # Delete the temporal file after the plot is done, unless savefile is True
             if os.path.isfile(index2file) and not savefile: os.remove(index2file)
@@ -2012,3 +2033,44 @@ def plot_web(array):
     fig.show()
 
 
+def plot_bfield_projection(filename='00260.hdf5', axis='z'):
+    """ Plot a projection of the B field from the output of 
+        zeusTW. It assumes the output from zeusTW was 
+        interpolated into a Cartesian grid and dumped as an 
+        HDF5 file.
+        It generates the vector plot using APLPy.
+    """
+    import h5py
+
+    # Read the data
+    f = h5py.File(filename, 'r')
+    
+    # Read and generate a coordinate grid
+    coor = f['coord']
+    dcc = coor['dcc']
+    rcc = coor['rcc']
+    dx, dy, dz = np.meshgrid(dcc, dcc, dcc, sparse=True, indexing='ij')
+    
+    # Turn every data field into a numpy array
+    data = {key: np.array(val) for key, val in f['data'].items()}
+    rho = abs(data['rho_interp'])
+    bx = data['Bx_interp']
+    by = data['By_interp']
+    bz = data['Bz_interp']
+
+    # Compute the column density
+    mu = 2.36
+    m_H = c.m_p.cgs.value
+    N_x = np.sum(rho * dx, axis=0).T / (m_H * mu)
+    N_y = np.sum(rho * dy, axis=1).T / (m_H * mu)
+    N_z = np.sum(rho * dz, axis=2).T / (m_H * mu)
+    N = {'x': N_x, 'y': N_y, 'z': N_z}
+    N = np.log10(N[axis])
+
+    # Generate the figure
+    fig, ax = plt.subplots(1,1)
+    img = ax.imshow(N)
+    fig.colorbar(img, ax=ax)
+
+    return fig
+    
