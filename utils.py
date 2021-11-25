@@ -30,11 +30,14 @@ class Observation:
 
     def __init__(self, lam, name=""):
         self.name = name
+        band = {
+            'band6' : '1.3mm',
+            'band3' : '3mm',
+            'bandQ' : '7mm',
+            'bandKu' : '18mm',
+        }
         self.data, self.header = fits.getdata(
-            home / f"phd/polaris/sourceB_{lam}.fits", header=True
-        )
-        self.data, self.header = fits.getdata(
-            home / f"phd/polaris/sourceB_{lam}.fits", header=True
+            home / f"phd/observations/iras16293/{band['lam']}/sourceB_{lam}.fits", header=True
         )
         
     def rescale(self, factor):
@@ -333,9 +336,9 @@ def plot_opacity_file(
     opacity = kappa[col]*(u.m**2/u.kg).to(u.cm**2/u.g)
 
 
-    if add_albedo:
-        fig, p = plt.subplots(ncols=1, nrows=2 if add_albedo else 1, sharex=True)
+    fig, p = plt.subplots(ncols=1, nrows=2 if add_albedo else 1, sharex=True)
 
+    if add_albedo:
         # Plot opacity
         p[0].loglog(lam, opacity, color='black')
         p[0].set_ylabel(r'$\kappa$ (cm$^2$ g$^{-1}$)')
@@ -957,6 +960,10 @@ def plot_map(
     filename,
     header=None,
     rescale=1,
+    transpose=False,
+    rot90=False, 
+    fliplr=False, 
+    flipud=False, 
     cblabel=None,
     scalebar=20 * u.au,
     cmap="magma",
@@ -986,19 +993,36 @@ def plot_map(
         data = filename
         hdr = header
 
+    # Flip the 2D array if required
+    if rot90:
+        print_('Rotating the image by 90 degrees', verbose)
+        data = np.rot90(data)
+    if transpose:
+        print_('Transposing the image', verbose)
+        data = np.transpose(data)
+    if flipud:
+        print_('Flipping up to down', verbose)
+        data = np.flipud(data)
+    if fliplr:
+        print_('Flipping left to right', verbose)
+        data = np.fliplr(data)
+
     # Remove non-celestial WCS
     filename_ = filename
     if hdr.get("NAXIS") > 2:
         tempfile = '.temp_file.fits'
-        # <patch>
+        # <patch>: Use the header from the observation of IRAS16293B
+        # but keep the phasecenter of the original input file
+        print_('Setting the header to that from IRAS16293B', True, bold=True)
+        hdr_ = set_hdr_to_iras16293B(hdr)
         write_fits(
             tempfile, 
             data=data.squeeze(), 
-            header=set_hdr_to_iras16293B(hdr), 
+            header=hdr_, 
             overwrite=True
         )
         filename = tempfile
-
+    
     # Convert Jy/beam into Kelvin if required
     if bright_temp:
         try:
@@ -1009,7 +1033,8 @@ def plot_map(
                 bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
             )
         except Exception as e:
-            print_('Beam keywords not available. Impossible to convert into T_b.', verbose=True, bold=True)
+            print_('Beam or frequency keywords not available. ' +\
+            'Impossible to convert into T_b.', verbose=True, bold=True)
 
     # Initialize the figure
     fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
@@ -1023,6 +1048,7 @@ def plot_map(
     # Auto set the colorbar label if not provided
     if cblabel is None and bright_temp:
         cblabel = r"$T_{\rm b}$ (K)"
+
     elif cblabel is None and rescale == 1e3:
         cblabel = "mJy/beam"
 
@@ -1032,11 +1058,10 @@ def plot_map(
     elif cblabel is None:
         try:
             hdr = fits.getheader(filename)
-            cblabel = hdr.get("BTYPE")
+            cblabel = hdr.get("BUNIT")
         except Exception as e:
             print_(e)
             cblabel = ""
-
 
     # Colorbar
     fig.add_colorbar()
@@ -1048,39 +1073,45 @@ def plot_map(
     # Frame and ticks
     fig.frame.set_color("black")
     fig.frame.set_linewidth(1.2)
-    fig.ticks.set_color('white' if cmap=='magma' else 'black')
+    fig.ticks.set_color('black' if cmap=='magma' else 'black')
     fig.ticks.set_linewidth(1.2)
     fig.ticks.set_length(6)
     fig.ticks.set_minor_frequency(5)
 
-    # Add Beam
-    if "alma" in str(filename_) or "vla" in str(filename_):
+    # Hide ticks and labels if FITS file is not a real obs.
+    if "alma" not in str(filename_) or "vla" not in str(filename_):
+        print_(f'File: {filename_}. Hiding axis ticks and labels', True)
+        fig.axis_labels.hide()
+
+    # Beam
+    if 'BMAJ' in hdr and 'BMIN' in hdr and 'BPA' in hdr:
         fig.add_beam(facecolor='none', edgecolor='white', linewidth=1)
         bmaj = hdr.get('BMAJ') * u.deg.to(u.arcsec)
         bmin = hdr.get('BMIN') * u.deg.to(u.arcsec)
-        fig.add_label(0.28, 0.07, f'{bmaj:.1}"x {bmin:.1}"', 
-            relative=True, color='white', size=13)
-
-    # Hide ticks and labels if FITS file is not a real obs.
-    if "alma" not in str(filename_):
-        print_(f'File: {filename_}. Hiding axis ticks and labels', True)
-        fig.axis_labels.hide()
-        fig.tick_labels.hide()
+        #fig.add_label(0.28, 0.07, f'{bmaj:.1f}"x {bmin:.1f}"', 
+        #    relative=True, color='white', size=13)
 
     # Scalebar
-    # TO DO: aplpy claims alma images have no celestial WCS, no scalebar allowed
     if scalebar is not None:
-        try:
-            D = 141 * u.pc
-            scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
-            fig.add_scalebar(scalebar_ * u.arcsec)
-            fig.scalebar.set_color("white")
-            fig.scalebar.set_corner("bottom right")
-            fig.scalebar.set_font(size=23)
-            fig.scalebar.set_linewidth(3)
-            fig.scalebar.set_label(f"{int(scalebar.value)} {scalebar.unit}")
-        except Exception as e:
-            print_(f'Not able to add scale bar. Error: {e}', verbose=True, fail=True)
+        if scalebar.unit in ['au', 'pc']:
+            try:
+                D = 141 * u.pc
+                print_(f'Physical scalebar created for a distance of: {D}', True)
+                scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
+                fig.add_scalebar(scalebar_ * u.arcsec)
+                unit = f' {scalebar.unit}'
+            except Exception as e:
+                print_(f'Not able to add scale bar. Error: {e}', True, fail=True)
+
+        elif scalebar.unit in ['arcsec', 'deg']:
+            fig.add_scalebar(scalebar)
+            unit = f'"' if scalebar.unit == 'arcsec' else "'"
+
+        fig.scalebar.set_color("white")
+        fig.scalebar.set_corner("bottom right")
+        fig.scalebar.set_font(size=23)
+        fig.scalebar.set_linewidth(3)
+        fig.scalebar.set_label(f"{int(scalebar.value)}{unit}")
 
     # Delete the temporary file created to get rid of extra dimensions
     if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
@@ -1088,19 +1119,62 @@ def plot_map(
     return plot_checkout(fig, show, savefig) if checkout else fig
 
 
+def pol_angle(stokes_q, stokes_u):
+    """Calculates the polarization angle from Q and U Stokes component.
+
+    Args:
+        stokes_q (float): Q-Stokes component [Jy].
+        stokes_u (float): U-Stokes component [Jy].
+
+    Returns:
+        float: Polarization angle.
+    
+    Disclaimer: This function is directly copied from polaris-tools.
+    """
+    # Polarization angle from Stokes Q component
+    q_angle = 0.
+    if stokes_q >= 0:
+        q_angle = np.pi / 2.
+    # Polarization angle from Stokes U component
+    u_angle = 0.
+    if stokes_u >= 0:
+        u_angle = np.pi / 4.
+    elif stokes_u < 0:
+        if stokes_q >= 0:
+            u_angle = np.pi * 3. / 4.
+        elif stokes_q < 0:
+            u_angle = -np.pi / 4.
+    # x vector components from both angles
+    x = abs(stokes_q) * np.sin(q_angle)
+    x += abs(stokes_u) * np.sin(u_angle)
+    # y vector components from both angles
+    y = abs(stokes_q) * np.cos(q_angle)
+    y += abs(stokes_u) * np.cos(u_angle)
+    # Define a global direction of the polarization vector 
+    # since polarization vectors are ambiguous in both directions.
+    if x < 0:
+        x *= -1.0
+        y *= -1.0
+    # Polarization angle calculated from Q and U components
+    pol_angle = np.arctan2(y, x)
+
+    return pol_angle, x, y
+
+
 @elapsed_time
 def polarization_map(
-    filename="polaris_detector_nr0001.fits.gz",
+    source = 'polaris', 
     render="intensity",
     polarization="linear", 
+    stokes_I = None, 
+    stokes_Q = None, 
+    stokes_U = None, 
     wcs="deg",
     rotate=0,
     step=20,
     scale=50,
-    fmin=None,
-    fmax=None,
-    savefig=None,
-    show=True,
+    scalebar=None, 
+    mapsize=None, 
     vector_color="white",
     vector_width=1, 
     add_thermal=False,
@@ -1108,7 +1182,13 @@ def polarization_map(
     add_bfield=False,
     const_bfield=False,
     const_pfrac=False,
+    min_pfrac=0, 
+    rms_I=None, 
+    rms_Q=None, 
+    bright_temp=False, 
     rescale=None, 
+    savefig=None,
+    show=True,
     verbose=True,
     *args,
     **kwargs,
@@ -1126,153 +1206,160 @@ def polarization_map(
     # Store the current path
     pwd = os.getcwd()
 
-    # Read the Stokes components from data cube
-    data = fits.getdata(filename).squeeze()
-    hdr = fits.getheader(filename)
+    # Read the Stokes components from a data cube
+    if source in ['alma', 'vla']:
+        hdr = fits.getheader(f'{source}_I.fits')
 
-    I = data[0]
-    Q = data[1]
-    U = data[2]
-    V = data[3]
-
-    try:
-        tau = data[4]
-    except:
+        I = fits.getdata(f'{source}_I.fits').squeeze()
+        Q = fits.getdata(f'{source}_Q.fits').squeeze()
+        U = fits.getdata(f'{source}_U.fits').squeeze()
+        V = np.zeros(U.shape)
         tau = np.zeros(I.shape)
+        
+    elif 'polaris' in source:
+        filename = 'polaris_detector_nr0001.fits.gz'
+        data = fits.getdata(filename).squeeze()
+        hdr = fits.getheader(filename)
 
-    # Add thermal flux to the scattered flux.
-    # If add_thermal is a path, then read the flux from file
-    if isinstance(add_thermal, (str,PosixPath)):
+        I = data[0]
+        Q = data[1]
+        U = data[2]
+        V = data[3]
+
         try:
-            I_th = fits.getdata(add_thermal)
-        except OSError:
-            raise FileNotFoundError(
-                f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
-            )
+            tau = data[4]
+        except:
+            tau = np.zeros(I.shape)
 
-    # If add_thermal is True, assume the path to scattered flux file is similarly structured 
-    elif add_thermal:
-        if "thermal emission" in hdr.get("ETYPE", ""):
-            print_("You are adding thermal flux to the thermal flux. Not gonna happen.", bold=True)
+        # Add thermal flux to the scattered flux.
+        # If add_thermal is a path, then read the flux from file
+        if isinstance(add_thermal, (str,PosixPath)):
+            try:
+                I_th = fits.getdata(add_thermal)
+            except OSError:
+                raise FileNotFoundError(
+                    f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
+                )
+
+        # If add_thermal is True, assume the path to scattered flux file is similarly structured 
+        elif add_thermal:
+            if "thermal emission" in hdr.get("ETYPE", ""):
+                print_("You are adding thermal flux to the thermal flux. Not gonna happen.", bold=True)
+                I_th = np.zeros(I.shape)
+
+            elif "scattered emission" in hdr.get("ETYPE", ""):
+                print_("Adding thermal flux to the self-scattered flux.", bold=True)
+
+                if 'dust_scattering' in pwd:
+                    thermal_file = pwd.replace("dust_scattering", "dust_emission")
+                elif 'dust_mc' in pwd:
+                    thermal_file = pwd.replace("dust_mc", "dust_th")
+
+                print_(f"File: {thermal_file + '/' + filename}", bold=True)
+                try:
+                    I_th = fits.getdata(thermal_file + "/" + filename)[0][0]
+                except OSError:
+                    raise FileNotFoundError(
+                        f'File with thermal flux does not exist.\n\
+                                            File: {thermal_file+"/"+filename}'
+                    )
+        # If not provided, set to zero
+        else:
             I_th = np.zeros(I.shape)
 
-        elif "scattered emission" in hdr.get("ETYPE", ""):
-            print_("Adding thermal flux to the self-scattered flux.", bold=True)
-
-            if 'dust_scattering' in pwd:
-                thermal_file = pwd.replace("dust_scattering", "dust_emission")
-            elif 'dust_mc' in pwd:
-                thermal_file = pwd.replace("dust_mc", "dust_th")
-
-            print_(f"File: {thermal_file + '/' + filename}", bold=True)
+        # Add self-scattered emission to the thermal emission if required
+        if isinstance(add_scattered, (str,PosixPath)):
             try:
-                I_th = fits.getdata(thermal_file + "/" + filename)[0][0]
+                I_ss = fits.getdata(add_scattered)
             except OSError:
                 raise FileNotFoundError(
-                    f'File with thermal flux does not exist.\n\
-										File: {thermal_file+"/"+filename}'
+                    f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
                 )
-    # If not provided, set to zero
-    else:
-        I_th = np.zeros(I.shape)
 
-    # Add self-scattered emission to the thermal emission if required
-    if isinstance(add_scattered, (str,PosixPath)):
-        try:
-            I_ss = fits.getdata(add_scattered)
-        except OSError:
-            raise FileNotFoundError(
-                f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
-            )
+        # If add_thermal is True, assume the path to scattered flux file is similarly structured 
+        elif add_scattered:
+            if "scattered emission" in hdr.get("ETYPE", ""):
+                print_("You are adding scattered flux to the scattered flux. Not gonna happen.", bold=True)
+                I_ss = np.zeros(I.shape)
 
-    # If add_thermal is True, assume the path to scattered flux file is similarly structured 
-    elif add_scattered:
-        if "scattered emission" in hdr.get("ETYPE", ""):
-            print_("You are adding scattered flux to the scattered flux. Not gonna happen.", bold=True)
+            elif "thermal emission" in hdr.get("ETYPE", ""):
+                print_("Adding scattered flux to the thermal flux.", bold=True)
+
+                if 'dust_alignment' in pwd:
+                    scattered_file = pwd.replace("dust_alignment", "dust_scattering")
+                    scattered_file = scattered_file.replace("pa/", "")
+                elif 'dust_emission' in pwd:
+                    scattered_file = pwd.replace("dust_emission", "dust_scattering")
+                elif 'dust_mc' in pwd:
+                    scattered_file = pwd.replace("dust_mc", "dust_th")
+
+                print_(f"File: {scattered_file + '/' + filename}", bold=True)
+                try:
+                    I_ss = fits.getdata(scattered_file + "/" + filename)[0][0]
+                except OSError:
+                    raise FileNotFoundError(
+                        f'File with scattered flux does not exist.\n\
+                                            File: {scattered_file+"/"+filename}'
+                    )
+        # If not provided, set to zero
+        else:
             I_ss = np.zeros(I.shape)
 
-        elif "thermal emission" in hdr.get("ETYPE", ""):
-            print_("Adding scattered flux to the thermal flux.", bold=True)
+        # Add all sources of flux: direct thermal and scattered emission
+        I = I + I_th + I_ss
 
-            if 'dust_alignment' in pwd:
-                scattered_file = pwd.replace("dust_alignment", "dust_scattering")
-            elif 'dust_emission' in pwd:
-                scattered_file = pwd.replace("dust_emission", "dust_scattering")
-            elif 'dust_mc' in pwd:
-                scattered_file = pwd.replace("dust_mc", "dust_th")
-
-            print_(f"File: {scattered_file + '/' + filename}", bold=True)
-            try:
-                I_ss = fits.getdata(scattered_file + "/" + filename)[0][0]
-            except OSError:
-                raise FileNotFoundError(
-                    f'File with scattered flux does not exist.\n\
-										File: {scattered_file+"/"+filename}'
-                )
-    # If not provided, set to zero
     else:
-        I_ss = np.zeros(I.shape)
+        # Assume the name of the source files for I, Q and U is given manually
+        source = 'obs'
 
+        print_('Reading files from an external source ...', True)
+        hdr = fits.getheader('obs_I.fits' if stokes_I is None else stokes_I)
+        I = fits.getdata('obs_I.fits' if stokes_I is None else stokes_I).squeeze()
+        Q = fits.getdata('obs_Q.fits' if stokes_Q is None else stokes_Q).squeeze()
+        U = fits.getdata('obs_U.fits' if stokes_U is None else stokes_U).squeeze()
+        V = np.zeros(U.shape)
+        tau = np.zeros(I.shape)
 
-    # Add all sources of flux: direct thermal and scattered emission
-    I = I + I_th + I_ss
-
-    def pol_angle(stokes_q, stokes_u):
-        """Calculates the polarization angle from Q and U Stokes component.
-
-        Args:
-            stokes_q (float): Q-Stokes component [Jy].
-            stokes_u (float): U-Stokes component [Jy].
-
-        Returns:
-            float: Polarization angle.
-        
-        Note: temporally copied from polaris-tools.
-        """
-        # Polarization angle from Stokes Q component
-        q_angle = 0.
-        if stokes_q >= 0:
-            q_angle = np.pi / 2.
-        # Polarization angle from Stokes U component
-        u_angle = 0.
-        if stokes_u >= 0:
-            u_angle = np.pi / 4.
-        elif stokes_u < 0:
-            if stokes_q >= 0:
-                u_angle = np.pi * 3. / 4.
-            elif stokes_q < 0:
-                u_angle = -np.pi / 4.
-        # x vector components from both angles
-        x = abs(stokes_q) * np.sin(q_angle)
-        x += abs(stokes_u) * np.sin(u_angle)
-        # y vector components from both angles
-        y = abs(stokes_q) * np.cos(q_angle)
-        y += abs(stokes_u) * np.cos(u_angle)
-        # Define a global direction of the polarization vector since polarization vectors
-        # are ambiguous in both directions.
-        if x < 0:
-            x *= -1.0
-            y *= -1.0
-        # Polarization angle calculated from Q and U components
-        pol_angle = np.arctan2(y, x)
-
-        return pol_angle, x, y
 
     # Compute the polarization angle 
-    pangle = np.zeros(Q.shape)
-    x = np.zeros(Q.shape)
-    y = np.zeros(Q.shape)
-    for qi, ui in zip(range(Q.shape[0]), range(U.shape[0])):
-        for qj, uj in zip(range(Q.shape[1]), range(U.shape[1])):
-            pangle[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[0]
-            x[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[1]
-            y[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[2]
+#    pangle = np.zeros(Q.shape)
+#    x = np.zeros(Q.shape)
+#    y = np.zeros(Q.shape)
+#    for qi, ui in zip(range(Q.shape[0]), range(U.shape[0])):
+#        for qj, uj in zip(range(Q.shape[1]), range(U.shape[1])):
+#            pangle[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[0]
+#            x[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[1]
+#            y[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[2]
 
-    # pangle_arctan = 0.5 * np.arctan2(U, Q)
+    pangle = 0.5 * np.arctan2(U, Q)
     pangle = pangle * u.rad.to(u.deg)
 	
+    # Set rms of stokes I  
+    if rms_I is None and 'RMS_I' in hdr:
+        rms_I = hdr.get('RMS_I')
+        min_I = 5 * rms_I 
+    elif rms_I is not None and rms_I > 0:
+        min_I = 5 * rms_I
+    else:
+        rms_I = 0
+        min_I = np.nanmin(I)
+
+    # Set rms of stokes Q  
+    if rms_Q is None and 'RMS_Q' in hdr:
+        rms_Q = hdr.get('RMS_Q')
+        min_Q = 2 * rms_Q 
+    elif rms_Q is not None and rms_Q > 0:
+        min_Q = 2 * rms_Q
+    else:
+        rms_Q = 0
+        min_Q = np.nanmin(Q)
+        
+    print_(f'rms_I: {rms_I}', True, bold=True)
+    print_(f'rms_Q: {rms_Q}', True, bold=True)
+
     # Compute the polarized intensity
-    pi = np.sqrt(U**2 + Q**2)
+    # Apply debias correction (Viallancourt et al. 2006)
+    pi = np.sqrt(U**2 + Q**2 - rms_Q**2)
 
     # Compute the polarization fraction 
     if polarization in ['linear', 'l']:
@@ -1280,73 +1367,127 @@ def polarization_map(
     elif polarization in ['circular', 'c']:
         pfrac = V / I
 
-    # Mask the polarization vectors with almost no inclination
-    pangle[pfrac < 0.005] = np.NaN
+    # Mask the polarization vectors for a given threshold in pol. fraction
+    if min_pfrac > 0:
+        pangle[pfrac < min_pfrac] = np.NaN
+    
+    # Mask the polarization vectors emission with stokes I under a given SNR
+    pangle[I < min_I] = np.NaN
+    pfrac[I < min_I] = np.NaN
+
+    # Mask the polarization vectors emission with pol. intensity under a given SNR
+    pangle[pi < min_Q] = np.NaN
+    pfrac[pi < min_Q] = np.NaN
+    pi[pi < min_Q] = np.NaN
 
     # Set the polarization fraction to 100% to plot vectors of constant length
-    pfrac = np.ones(pfrac.shape) if const_pfrac else pfrac
+    if const_pfrac: 
+        if render.lower() in ["pf", "pfrac"]:
+            print_(f'Ignoring const_pfrac = {const_pfrac}', verbose)
+        else:
+            pfrac = np.ones(pfrac.shape) 
 
-    # Edit the header to match the observation from IRAS16293B
-    hdr = set_hdr_to_iras16293B(hdr, keep_wcs=True, verbose=True)
+    # Edit the header of the models to set the phasecenter from IRAS16293B
+    if source == 'polaris':
+        hdr = set_hdr_to_iras16293B(hdr, keep_wcs=True, verbose=True)
 
     # Write quantities into fits files
-    quantities = {"I": I, "Q": Q, "U": U, "V": V, "tau": tau, "pi": pi, "pfrac": pfrac, "pangle": pangle}
-    for f, d in quantities.items():
-        write_fits(f + ".fits", d, hdr)
+    quantities = {
+        "I": I, 
+        "Q": Q, 
+        "U": U, 
+        "V": V, 
+        "tau": tau, 
+        "pi": pi, 
+        "pfrac": pfrac, 
+        "pangle": pangle
+    }
+    for q, d in quantities.items():
+        write_fits(f'{source}_{q}.fits', data=d, header=hdr, overwrite=True)
+
+    # Define the unit for the plot
+    if bright_temp:
+        unit = '(K)'
+    elif 'BUNIT' in hdr:
+        unit = hdr.get('BUNIT')
+    else:
+        unit = r'($\mu$Jy/pixel)' if rescale is None else '(Jy/pixel)'
+        unit = '(Jy/beam)' if source in ['alma','vla'] else unit
 
     # Select the quantity to plot
-    unit = r'($\mu$Jy/pixel)' if rescale is None else '(Jy/pixel)'
     if render.lower() in ["i", "intensity"]:
-        figname = "I.fits"
+        figname = f"{source}_I.fits"
         cblabel = f"Stokes I {unit}"
         # Rescale to micro Jy/px
-        rescale = 1e6 if rescale is None else rescale
+        rescale = 1e6 if rescale is None and source == 'polaris' else rescale
 
     elif render.lower() in ["q"]:
-        figname = "Q.fits"
+        figname = f"{source}_Q.fits"
         cblabel = f"Stokes Q {unit}"
         # Rescale to micro Jy/px
-        rescale = 1e6 if rescale is None else rescale
+        rescale = 1e6 if rescale is None and source == 'polaris' else rescale
 
     elif render.lower() in ["u"]:
-        figname = "U.fits"
+        figname = f"{source}_U.fits"
         cblabel = f"Stokes U {unit}"
         # Rescale to micro Jy/px
-        rescale = 1e6 if rescale is None else rescale
+        rescale = 1e6 if rescale is None and source == 'polaris' else rescale
 
     elif render.lower() in ["tau", "optical depth"]:
-        figname = "tau.fits"
+        figname = f"{source}_tau.fits"
         cblabel = "Optical depth"
         rescale = 1 if rescale is None else rescale
 
     elif render.lower() in ["pi", "poli", "polarized intensity"]:
-        figname = "pi.fits"
+        figname = f"{source}_pi.fits"
         cblabel = f"Polarized intensity {unit}"
-        # Rescale to micro Jy/px
-        rescale = 1e6 if rescale is None else rescale
+        # Rescale to micro uJy/px
+        rescale = 1e6 if rescale is None and source == 'polaris' else rescale
 
     elif render.lower() in ["pf", "pfrac", "polarization fraction"]:
-        figname = "pfrac.fits"
+        figname = f"{source}_pfrac.fits"
         cblabel = "Polarization fraction"
         rescale = 1 if rescale is None else rescale
+        bright_temp = False
 
     else:
         rescale = 1
-        raise ValueError("Wrong value for render. Must be 'intensity' or 'pfrac'.")
+        raise ValueError("Wrong value for render. Must be i, q, u, pf, pi or tau.")
 
     # Plot the render quantity a colormap
     fig = plot_map(
-        figname, rescale=rescale, cblabel=cblabel, bright_temp=False, scalebar=None, *args, **kwargs,
+        figname, 
+        rescale=rescale, 
+        cblabel=cblabel, 
+        bright_temp=bright_temp, 
+        scalebar=scalebar, 
+        *args,
+        **kwargs,
     )
+    
+    # Set the image size
+    if mapsize is not None:
+        D = 141*u.pc
+        if mapsize.unit == 'au':
+            img_size = ((mapsize / 2).to(u.pc) / D) * u.rad.to(u.deg)
 
-    # Shift the origin of APLPy's vector angles, to be consistent with matplotlib
-    # and books, e.g., Rybicky & Lightman (2004), Fig. 2.4.
-    rotate = int(rotate) - 90
+        elif mapsize.unit == 'pc':
+            img_size = (mapsize / 2 / D) * u.rad.to(u.deg)
+
+        elif mapsize.unit in ['arcsec']:
+            img_size = (mapsize / 2)*u.arcsec.to(u.deg)
+
+        else:
+            img_size = mapsize / 2 
+
+        fig.recenter(hdr.get('CRVAL1'), hdr.get('CRVAL2'), radius=img_size)
+
+    rotate = rotate if source == 'obs' else int(rotate) - 90
 
     # Add polarization vectors
     fig.show_vectors(
-        "pfrac.fits",
-        "pangle.fits",
+        f"{source}_pfrac.fits",
+        f"{source}_pangle.fits",
         step=step,
         scale=scale,
         rotate=rotate,
@@ -1378,11 +1519,12 @@ def polarization_map(
         )
     
     # Plot the tau = 1 contour when optical depth is plotted    
-    fig.show_contour(
-        'tau.fits', 
-        levels=[1],
-        colors='green',
-    )
+    if render.lower() in ["tau", "optical depth"]:
+        fig.show_contour(
+            f'{source}_tau.fits', 
+            levels=[1],
+            colors='green',
+        )
 
     if show:
         plt.show()
@@ -1851,7 +1993,7 @@ def tau_surface(
 
         # Plot the temperature
         rendplot = mlab.contour3d(
-            temp, 
+            render['render'], 
             colormap='inferno', 
             opacity=0.5, 
             vmin=90 if 'rhd' in str(pwd) else None, 
@@ -1893,13 +2035,13 @@ def tau_surface(
 
         # Adjust the light source of the scene to illuminate the disk from the viewer's POV 
         #camera_light1 = engine.scenes[0].scene.light_manager.lights[0]
-        camera_light1 = scene.scene.light_manager.lights[0]
-        camera_light1.elevation = 90.0
-        camera_light1.intensity = 1.0
-        #camera_light2 = engine.scenes[0].scene_light.manager.lights[1]
-        camera_light2 = scene.scene_light.manager.lights[1]
-        camera_light2.elevation = 90.0
-        camera_light2.elevation = 0.7
+        #camera_light1 = scene.scene.light_manager.lights[0]
+        #camera_light1.elevation = 90.0
+        #camera_light1.intensity = 1.0
+        ##camera_light2 = engine.scenes[0].scene_light.manager.lights[1]
+        #camera_light2 = scene.scene_light.manager.lights[1]
+        #camera_light2.elevation = 90.0
+        #camera_light2.elevation = 0.7
 
         # Customize the iso-surfaces
         module_manager = engine.scenes[0].children[0].children[0]
@@ -1968,7 +2110,7 @@ def tau_surface(
         return render['render'], op_depth_1mm, op_depth_3mm
 
 
-def disk_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
+def dust_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
     """ Calculate the disk gas mass using the observational approach, 
         e.g., assuming emission is optically thin and that temperature 
         is uniform across the disk (see Evans et al. 2017, eq. 2). 
@@ -1980,6 +2122,9 @@ def disk_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
     
     # Extinction opacity at 1.3 and 3 mm in cgs for amax=10um
     kappa = {
+        '0.07mm': 675 * (u.cm**2 / u.g),
+        '1mm': 3.32 * (u.cm**2 / u.g), 
+        '2mm': 0.85 * (u.cm**2 / u.g), 
         '1.3mm': 1.49765 * (u.cm**2 / u.g), 
         '3mm': 0.58061 * (u.cm**2 / u.g)
     }
