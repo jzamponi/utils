@@ -332,9 +332,7 @@ def plot_opacity_file(
         'abs': data['col18'] * (u.m**2/u.kg).to(u.cm**2/u.g), 
         'sca': data['col20'] * (u.m**2/u.kg).to(u.cm**2/u.g),
     }
-    # Convert to cgs
-    opacity = kappa[col]*(u.m**2/u.kg).to(u.cm**2/u.g)
-
+    opacity = kappa[col]
 
     fig, p = plt.subplots(ncols=1, nrows=2 if add_albedo else 1, sharex=True)
 
@@ -864,21 +862,22 @@ def radial_profile(
     return (radii, averages) if return_radii else averages
 
 
-def stats(filename, slice=None, verbose=False):
+def stats(data, verbose=True, slice=None):
     """
-    Compute the statistics of a file.
+    Compute basic statistics of a array or a fits file.
+    The functions used here ignore NaN values in the data.
     """
 
     # Read data
-    if isinstance(filename, (str,PosixPath)):
-        data, hdr = fits.getdata(filename, header=True)
+    if isinstance(data, (str,PosixPath)):
+        data, hdr = fits.getdata(data, header=True)
 
         if isinstance(slice, int):
             data = data[slice]
         elif isinstance(slice, list) and len(slice) == 2:
             data = data[slice[0], slice[1]]
     else:
-        data = np.array(filename)
+        data = np.array(data)
 
     # Set the relevant quantities
     stat = {
@@ -893,7 +892,7 @@ def stats(filename, slice=None, verbose=False):
 
     # Print statistics if verbose enabled
     for label, value in stat.items():
-        print_(f"{label}: {value}", verbose)
+        print_(f"{label}: {value}", verbose=verbose)
 
     return stat
 
@@ -2048,8 +2047,8 @@ def tau_surface(
         temp_surface = engine.scenes[0].children[0].children[0].children[0]
         tau1_surface = engine.scenes[0].children[1].children[0].children[0]
         tau3_surface = engine.scenes[0].children[2].children[0].children[0]
-        temp_surface.contour.minimum_contour = 100.0 if 'rhd' in str(pwd) else None 
-        temp_surface.contour.maximum_contour = 400.0 if 'rhd' in str(pwd) else None
+        temp_surface.contour.minimum_contour = 100.0 if 'rhd' in str(pwd) else 0 
+        temp_surface.contour.maximum_contour = 400.0 if 'rhd' in str(pwd) else 0
         temp_surface.actor.property.representation = 'wireframe'
         tau1_surface.actor.property.representation = 'wireframe'
         tau3_surface.actor.property.representation = 'wireframe'
