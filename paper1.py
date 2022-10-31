@@ -27,29 +27,29 @@ def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
     fig = plt.figure(figsize=figsize)
 
     f1 = utils.plot_map(
-        home/f'phd/polaris/sourceB_1.3mm.fits',
+        home/f'phd/observations/iras16293/band6/sourceB_1.3mm.fits',
         figsize=None,
         stretch='linear', 
         scalebar=20*u.au, 
         vmin=0, 
         vmax=287, 
-        contours=True, 
+        contours=False, 
         figure=fig,
         subplot=[0.12, 0.05, 0.25, 0.9], 
     )
     f2 = utils.plot_map(
-        home/f'phd/polaris/sourceB_3mm.fits',
+        home/f'phd/observations/iras16293/band3/sourceB_3mm.fits',
         figsize=None,
         stretch='linear', 
         scalebar=20*u.au, 
         vmin=0, 
         vmax=468, 
-        contours=True, 
+        contours=False, 
         figure=fig,
         subplot=[0.40, 0.05, 0.25, 0.9], 
     )
     f3 = utils.plot_map(
-        filename = home/f'phd/polaris/sourceB_spectral_index.fits', 
+        filename = home/f'phd/observations/iras16293/sourceB_spectral_index_band3-6.fits', 
         cmap='PuOr', 
         cblabel='Spectral index', 
         figsize=None, 
@@ -90,7 +90,14 @@ def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
     f3.add_beam(edgecolor='black', facecolor='none', linewidth=1)
     f3.show_contour(colors="black", levels=[1.7, 2, 3])
 
-    #plt.tight_layout()
+    
+    # Add a contour for the water snow line
+    #f2.show_contour(colors='tab:blue', levels=[170], linewidths=3)
+
+    # Add each FITS-sub-figure to the main figure 
+    fig.f1 = f1
+    fig.f2 = f2
+    fig.f3 = f3
 
     return utils.plot_checkout(fig, show, savefig=savefig, path=home/'phd/plots/paper1')
 
@@ -103,10 +110,10 @@ def plot_disk_model(model='rhd', show=True, savefig=None, figsize=(8,6.8), use_a
     if model == 'mhd':
         filename = home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_eos/sg/d141pc'
     elif model == 'rhd': 
-        filename = home/'phd/rhd_disk/results/dust_emission/temp_eos/sg'
+        filename = home/'phd/rhd_disk/results/snap541/dust_emission/temp_eos/sg'
 
     # Read the data
-    data, hdr = fits.getdata(filename/'amax10um/3mm/0deg/data/input_midplane.fits.gz', header=True)
+    data, hdr = fits.getdata(filename/'amax10um/3mm/0deg/dust_scat/data/input_midplane.fits.gz', header=True)
     temp = {'faceon': data[2,0], 'edgeon': data[2,1]}
     dens = {'faceon': data[0,0], 'edgeon': data[0,1]}
 
@@ -240,9 +247,10 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg', add
     def read_opac(amax, kappa):
         """Read polaris opacity file"""
         k = ascii.read(prefix/f'amax{amax}/data/dust_mixture_001.dat', data_start=10)
+        lam = k['col1'] * u.m.to(u.micron)
         kabs = k['col18'] * (u.m**2/u.kg).to(u.cm**2/u.g)
         ksca = k['col20'] * (u.m**2/u.kg).to(u.cm**2/u.g)
-        return kabs if kappa == 'abs' else ksca
+        return (lam, kabs if kappa == 'abs' else ksca)
 
     def albedo(amax):
         kabs = read_opac(amax, 'abs')
@@ -251,96 +259,79 @@ def plot_opacities(show=True, savefig='', figsize=(5,3.5), composition='sg', add
         return ksca / (kabs + ksca)
 
     # Set the global path
-    prefix = home/f'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/{composition}/'
+    prefix = home/f'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/temp_rt/{composition}/'
 
     # Read wavelength axis
     lam = ascii.read(prefix/f'amax1um/data/dust_mixture_001.dat', data_start=10)['col1']*u.m.to(u.micron)
     lam_l = ascii.read(prefix/f'amax1000um/data/dust_mixture_001.dat', data_start=10)['col1']*u.m.to(u.micron)
 
     # Create the figure object
-    fig, p = plt.subplots(figsize=figsize, nrows=2, ncols=1, sharex=True)
+    fig, p = plt.subplots(figsize=figsize, nrows=1, ncols=1, sharex=True)
 
     # Add two empty curves to populate the legend
-    abs_line = p[0].plot([],[], ls='-',  color='black', label=r'Absorption')
-    sca_line = p[0].plot([],[], ls='--', color='black',  label=r'Scattering')
+    abs_line = p.plot([],[], ls='-',  color='black', label=r'Absorption')
+    sca_line = p.plot([],[], ls='--', color='black',  label=r'Scattering')
 
     # Plot absorption and scattering opacitites
-    abs_p10 = p[0].loglog(
-        lam, 
-        read_opac('1um','abs'), 
+    abs_p10 = p.loglog(
+        *read_opac('1um','abs'), 
         ls='-', 
         color='tab:purple', 
         label=r'$a_{\rm max}=1\mu$m'
     )
-    sca_p10 = p[0].loglog(
-        lam, 
-        read_opac('1um','sca'), 
+    sca_p10 = p.loglog(
+        *read_opac('1um','sca'), 
         ls='--', 
         color='tab:purple'
     )
 
-    abs_p10 = p[0].loglog(
-        lam, 
-        read_opac('10um','abs'), 
+    abs_p10 = p.loglog(
+        *read_opac('10um','abs'), 
         ls='-', 
         color='tab:red', 
         label=r'$a_{\rm max}=10\mu$m'
     )
-    sca_p10 = p[0].loglog(
-        lam, 
-        read_opac('10um','sca'), 
+    sca_p10 = p.loglog(
+        *read_opac('10um','sca'), 
         ls='--', 
         color='tab:red'
     )
 
-    abs_p100 = p[0].loglog(
-        lam, 
-        read_opac('100um','abs'), 
+    abs_p100 = p.loglog(
+        *read_opac('100um','abs'), 
         ls='-', 
         color='tab:green', 
         label=r'$a_{\rm max}=100\mu$m'
     )
-    sca_p100 = p[0].loglog(
-        lam, 
-        read_opac('100um','sca'), 
-        ls='--', color='tab:green'
+    sca_p100 = p.loglog(
+        *read_opac('100um','sca'), 
+        ls='--', 
+        color='tab:green'
     )
 
-    abs_p1000 = p[0].loglog(
-        lam_l, 
-        read_opac('1000um','abs'), 
+    abs_p1000 = p.loglog(
+        *read_opac('1000um','abs'), 
         ls='-', 
         color='tab:blue', 
         label=r'$a_{\rm max}=1000\mu$m'
     )
-    sca_p1000 = p[0].loglog(
-        lam_l, 
-        read_opac('1000um','sca'), 
-        ls='--', color='tab:blue'
+    sca_p1000 = p.loglog(
+        *read_opac('1000um','sca'), 
+        ls='--', 
+        color='tab:blue'
     )
 
     # Upper panel: opacities
-    p[0].axvline(1.3e3, ls=':', color='grey')
-    p[0].axvline(3e3, ls=':', color='grey')
-    p[0].text(0.9e3, 1e2, '1.3 mm', rotation=90, size=13, color='grey') 
-    p[0].text(2.05e3, 1e2, '3 mm', rotation=90, size=13, color='grey') 
-    p[0].legend(ncol=1)
-    p[0].set_ylim(1e-3,1e5)
-    p[0].set_xlim(1,4e3)
-    p[0].set_ylabel(r'$\kappa_{\nu}$ (cm$^2$g$^{-1}$)')
-
-    # Lower panel: albedo 
-    p[1].loglog(lam_l, albedo('1um'), label=r'$a_{\rm max}=1\mu$m', ls='-', color='tab:purple')
-    p[1].loglog(lam_l, albedo('10um'), label=r'$a_{\rm max}=10\mu$m', ls='-', color='tab:red')
-    p[1].loglog(lam_l, albedo('100um'), label=r'$a_{\rm max}=100\mu$m', ls='-', color='tab:green')
-    p[1].loglog(lam_l, albedo('1000um'), label=r'$a_{\rm max}=1000\mu$m', ls='-', color='tab:blue')
-    p[1].set_ylim(1e-4, 1.1)
-    p[1].set_yticks([1e-4, 1e-3, 1e-2, 1e-1])
-    p[1].set_ylabel('albedo $\omega$')
-    p[1].set_xlabel('Wavelength (microns)')
-    p[1].legend(ncol=1)
-
-    plt.subplots_adjust(hspace=0)
+    p.axvline(1.3e3, ls=':', color='grey')
+    p.axvline(3e3, ls=':', color='grey')
+    p.text(0.9e3, 1e2, '1.3 mm', rotation=90, size=13, color='grey') 
+    p.text(2.05e3, 1e2, '3 mm', rotation=90, size=13, color='grey') 
+    p.legend(ncol=1)
+    p.set_ylim(1e-3,1e5)
+    p.set_xlim(1,4e3)
+    p.set_ylabel(r'$\kappa_{\nu}$ (cm$^2$g$^{-1}$)')
+    p.set_xlabel(r'Wavelength (microns)')
+    plt.tight_layout()
 
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
@@ -355,8 +346,8 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
     """
 
     prefixes = {
-        'mhd' : home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/sg/amax10um', 
-        'rhd' : home/'phd/rhd_disk/results/dust_heating/sg/amax10um',
+        'mhd' : home/'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_heating/temp_rt/sg/amax10um', 
+        'rhd' : home/'phd/rhd_disk/results/snap541/dust_heating/temp_rt/sg/amax10um',
     }
 
     fig, p_ = plt.subplots(nrows=2, ncols=1, figsize=figsize, sharex=True)
@@ -388,7 +379,7 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
                     utils.write_fits(tempfile, np.array([r_rt, rt]), overwrite=True)
                 elif curve == 'eos':
                     r_eos, eos = utils.radial_profile(
-                        f'{prefix}/temp_offset/data/input_midplane.fits.gz', 
+                        f'{prefix}/data/input_midplane.fits.gz', 
                         slices=[2,0], 
                         return_radii=True, 
                         nthreads=nthreads, 
@@ -396,7 +387,7 @@ def plot_dust_temperature(show=True, savefig=None, figsize=(6, 7), smooth=False,
                     utils.write_fits(tempfile, np.array([r_eos, eos]), overwrite=True)
                 elif curve == 'eos_rt':
                     r_eos_rt, eos_rt = utils.radial_profile(
-                        f'{prefix}/temp_offset/data/output_midplane.fits.gz', 
+                        f'{prefix}/data/output_midplane.fits.gz', 
                         return_radii=True, 
                         nthreads=nthreads, 
                     )
@@ -477,7 +468,7 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
         angles = [0, 10, 20, 30, 40]
 
     elif model == 'rhd':
-        prefix=home/'phd/rhd_disk/results/dust_emission/temp_eos/sg/'
+        prefix=home/'phd/rhd_disk/results/snap541/dust_emission/temp_eos/sg/'
         angles = [0, 10, 20, 30, 40]
 
     else:
@@ -495,7 +486,7 @@ def plot_horizontal_cuts(model, lam='3mm', show=True, savefig='', figsize=(6.4,4
         show=False, 
     )
 
-    # Customize the plot
+    # Customize the plot for each model
     if 'lmd2.4' in str(prefix):
         # Label the panel
         plt.annotate('MHD model', (0.70, 0.77), xycoords="axes fraction", fontsize=16)
@@ -550,14 +541,14 @@ def plot_simulated_observations(model='rhd', incl='0deg', amax='10um', show=True
     if model == 'mhd':
         prefix=Path(home/f'phd/polaris/results/lmd2.4-1k-Slw/00260/dust_emission/temp_comb/sg/d141pc/amax{amax}/')
     elif model == 'rhd':
-        prefix=Path(home/f'phd/rhd_disk/results/dust_emission/temp_eos/sg/amax{amax}/')
+        prefix=Path(home/f'phd/rhd_disk/results/snap541/dust_emission/temp_eos/sg/amax{amax}/')
     else:
         prefix=''
 
     fig = plt.figure(figsize=figsize) 
 
     f1 = utils.plot_map(
-        prefix/f'1.3mm/{incl}/data/1.3mm_{incl}_a{amax}_alma.fits', 
+        prefix/f'1.3mm/{incl}/dust_scat/data/alma_I.fits', 
         figsize=None,
         stretch='linear', 
         scalebar=20*u.au, 
@@ -568,7 +559,7 @@ def plot_simulated_observations(model='rhd', incl='0deg', amax='10um', show=True
         subplot=[0.12, 0.05, 0.25, 0.9], 
     )
     f2 = utils.plot_map(
-        prefix/f'3mm/{incl}/data/3mm_{incl}_a{amax}_alma.fits', 
+        prefix/f'3mm/{incl}/dust_scat/data/alma_I.fits', 
         figsize=None,
         stretch='linear', 
         scalebar=20*u.au, 
@@ -579,8 +570,8 @@ def plot_simulated_observations(model='rhd', incl='0deg', amax='10um', show=True
         subplot=[0.40, 0.05, 0.25, 0.9], 
     )
     f3 = utils.spectral_index(
-        prefix/f'1.3mm/{incl}/data/1.3mm_{incl}_a{amax}_alma.fits', 
-        prefix/f'3mm/{incl}/data/3mm_{incl}_a{amax}_alma_robust0_smoothed.fits', 
+        prefix/f'1.3mm/{incl}/dust_scat/data/alma_I.fits', 
+        prefix/f'3mm/{incl}/dust_scat/data/alma_I_robust0_smoothed1.3mm.fits', 
         figsize=None, 
         vmin=1.7, 
         vmax=3.5, 
@@ -619,6 +610,11 @@ def plot_simulated_observations(model='rhd', incl='0deg', amax='10um', show=True
     f3.ticks.set_length(7)
     f3.ticks.set_linewidth(2)
 
+    # Add each FITS-sub-figure to the main figure 
+    fig.f1 = f1
+    fig.f2 = f2
+    fig.f3 = f3
+
     return utils.plot_checkout(fig, show, savefig, path=home/f'phd/plots/paper1')
 
 
@@ -630,11 +626,12 @@ def plot_tau1_surface(lam='1.3mm', tau=1, bin_factor=1, show=True, savefig=None,
     # Compute the 2D Tdust distribution at 1.3 and 3 mm
     Td_tau1_1mm, Td_tau1_3mm = utils.tau_surface(
         tau=tau, 
-        prefix=home/'phd/rhd_disk/results/dust_heating/sg/amax10um/temp_offset/data', 
+        prefix=home/'phd/rhd_disk/results/snap541/grid3d/10au_height/nobin/data', 
         bin_factor=bin_factor, 
+        amax='10um', 
         plot2D=True,
         plot3D=False,
-        convolve=True,
+        convolve_map=True,
         verbose=True
     )
 
@@ -727,8 +724,8 @@ def plot_disk_mass(show=True, savefig=None, figsize=(4.5, 3.5)):
     S_3 = 0.29*u.Jy
     
     # Compute the mass estimates using both fluxes
-    mass_1 = utils.disk_mass(temp*u.K, S_1, lam='1.3mm')
-    mass_3 = utils.disk_mass(temp*u.K, S_3, lam='3mm')
+    mass_1 = utils.dust_mass(temp*u.K, S_1, lam='1.3mm')
+    mass_3 = utils.dust_mass(temp*u.K, S_3, lam='3mm')
 
     # Plot the mass ratios
     fig = plt.figure(figsize=figsize)
@@ -754,12 +751,15 @@ def plot_spectral_index_map_unconvolved(show=True, savefig=None, *args, **kwargs
         with no beam convolution.
     """
     # Read data
-    prefix = Path(home/'phd/rhd_disk/results/dust_emission/temp_eos/sg/amax10um')
+    prefix = Path(home/'phd/rhd_disk/results/snap541/dust_emission/temp_eos/sg/amax10um')
 
     # Generate spectral index map
     fig = utils.spectral_index(
-        prefix/'1.3mm/0deg/data/1.3mm_0deg_a10um.fits', 
-        prefix/'3mm/0deg/data/3mm_0deg_a10um.fits',
+        prefix/'1.3mm/0deg/dust_scat/data/polaris_I.fits', 
+        prefix/'3mm/0deg/dust_scat/data/polaris_I.fits',
+        vmin=1.7, 
+        vmax=3.4, 
+        savefile='.spectral_index_polaris.fits', 
         return_fig=True,
         *args,
         **kwargs
@@ -779,14 +779,15 @@ def plot_spectral_index_slice(show=True, savefig=None, figsize=(6,4.5)):
     
     # Read data
     obs = utils.Observation('3mm')
-    prefix = Path(home/'phd/rhd_disk/results/dust_emission/temp_eos/sg/amax10um/')
+    prefix = Path(home/'phd/rhd_disk/results/snap541/dust_emission/temp_eos/sg/amax10um/')
     
     # Read brightness temperatures 
-    intensity_model = fits.getdata(prefix/'3mm/0deg/data/3mm_0deg_a10um.fits').squeeze()
+    intensity_model = fits.getdata(prefix/'3mm/0deg/dust_scat/data/polaris_I.fits').squeeze()
 
     # Read spectral indices
-    alpha_iras = fits.getdata(home/'phd/polaris/sourceB_spectral_index.fits').squeeze()
-    alpha_model = fits.getdata(prefix/'spectral_index.fits').squeeze()
+    alpha_iras = fits.getdata(home/'phd/observations/iras16293/' / \
+        'sourceB_spectral_index_band3-6.fits').squeeze()
+    alpha_model = fits.getdata(prefix/'.spectral_index_polaris.fits').squeeze()
 
     # Generate the plot
     fig, p = plt.subplots(nrows=1, ncols=1, figsize=figsize)

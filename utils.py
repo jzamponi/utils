@@ -99,7 +99,7 @@ class Bfield:
         return self.angle
 
 
-def print_(string, verbose=None, fname=None, bold=False, fail=False, *args, **kwargs):
+def print_(string, verbose=None, bold=False, fail=False, fname=None, *args, **kwargs):
 
     # Get the name of the calling function by tracing one level up in the stack
     fname = sys._getframe(1).f_code.co_name if fname is None else fname
@@ -124,7 +124,6 @@ def write_fits(filename, data, header=None, overwrite=True, verbose=False):
 
     if filename != "":
         if overwrite and os.path.exists(filename):
-            print_("Overwriting file ...", verbose=verbose, fname=caller)
             os.remove(filename)
 
         fits.HDUList(fits.PrimaryHDU(data=data, header=header)).writeto(filename)
@@ -144,8 +143,12 @@ def elapsed_time(caller):
         # Measure time before it runs
         start = time.time()
 
-        # Execute the caller function
-        f = caller(*args, **kwargs)
+        try:
+            # Execute the caller function
+            f = caller(*args, **kwargs)
+        except KeyboardInterrupt:
+            # Print the time even after sending SIGINT (Ctrl+C)
+            print_('\nExecution interrupted by user.', True)
 
         # Measure time difference after it finishes
         run_time = time.time() - start
@@ -153,7 +156,6 @@ def elapsed_time(caller):
         # Print the elapsed time nicely formatted, if verbose is enabled
         print_(
             f'Elapsed time: {time.strftime("%H:%M:%S", time.gmtime(run_time))}', 
-            #verbose = kwargs.get('verbose'), 
             verbose = True, 
             fname = caller.__name__
         )
@@ -182,8 +184,7 @@ def plot_checkout(fig, show, savefig, path=""):
     savefig = "" if savefig is None else savefig
     if savefig != "":
         # Check if savefig is a global path
-        #plt.savefig(f"{savefig}" if '/' in savefig else f"{path}/{savefig}") 
-        plt.savefig(f"{savefig}" if '/' in savefig else f"{path}/{savefig}", bbox_anchor='tight') 
+        plt.savefig(f"{savefig}" if '/' in savefig else f"{path}/{savefig}") 
 
     # Show the figure if required
     if show:
@@ -342,14 +343,7 @@ def plot_opacity_file(
 
     # Handle path prefixes and special names if provided in the filename 
     filename = str(filename)
-    if 'mix' in filename:
-        if '/' in filename:
-            dirname = '/'.join(filename.split('/')[:-1])
-            filename = f'{dirname}/dust_mixture_001.dat' 
-        else:
-            filename = filename 
-
-    elif 'silicate' in filename:
+    if 'silicate' in filename:
         if '/' in filename:
             dirname = '/'.join(filename.split('/')[:-1])
             filename = f'{dirname}/dust_mixture_001_comp_003.dat'
@@ -627,7 +621,7 @@ def create_cube(
     return data
 
 
-def read_sph(snapshot="snap_541.dat"):
+def read_sph(snapshot="snap_541.dat", write_hdf5=False, remove_sink=True, cgs=True, verbose=False):
     """
     Notes:
 
@@ -652,14 +646,49 @@ def read_sph(snapshot="snap_541.dat"):
     
     outlier_index = 31330
     """
+    import h5py
 
     # Read file in binary format
     with open(snapshot, "rb") as f:
+        print_(f'Reading file: {snapshot}', verbose)
         names = f.readline()[1:].split()
-        data = np.fromstring(f.read()).reshape(-1, len(names))
+        data = np.frombuffer(f.read()).reshape(-1, len(names))
         data = data.astype("f4")
 
-    return data
+    # Turn data into CGS 
+    if cgs:
+        data[:, 2:5] *= u.au.to(u.cm)
+        data[:, 8] *= u.M_sun.to(u.g)
+
+    # Remove the cell data of the outlier, likely associated to a sink particle
+    if remove_sink:
+        sink_id = 31330
+        data[sink_id, 5] = 0
+        data[sink_id, 6] = 0
+        data[sink_id, 7] = 0
+        data[sink_id, 8] = data[:,8].min()
+        data[sink_id, 9] = data[:,9].min()
+        data[sink_id, 10] = 3e-11 
+        data[sink_id, 11] = 900
+
+    if write_hdf5:
+        # Follow the GADGET/GIZMO convention
+        print_(f'Creating HDF5 file: {snapshot.replace("dat","h5")}', verbose)
+        file = h5py.File(snapshot.replace('dat','h5'), 'w')
+        h = file.create_group('Header')
+        g = file.create_group('PartType0')
+        g.create_dataset('ParticleIDs', data=data[:, 0], dtype='f')
+        g.create_dataset('Time', data=data[:, 1], dtype='f')
+        g.create_dataset('Coordinates', data=data[:, 2:5], dtype='f')
+        g.create_dataset('Velocities', data=data[:, 5:8], dtype='f')
+        g.create_dataset('Masses', data=data[:, 8], dtype='f')
+        g.create_dataset('SmoothingLength', data=data[:, 9], dtype='f')
+        g.create_dataset('Density', data=data[:, 10], dtype='f')
+        g.create_dataset('Temperature', data=data[:, 11], dtype='f')
+        g.create_dataset('InternalEnergy', data=data[:, 12], dtype='f')
+        file.close()
+        
+    return data 
 
 
 def read_zeusTW(frame):
@@ -781,7 +810,7 @@ def read_zeusTW(frame):
     return data
 
 
-def radmc3d_data(file_, npix=300, sizeau=50, distance=3.086e18 * u.m.to(u.cm)):
+def radmc3d_data(file_='image.out', npix=300, sizeau=50, distance=3.086e18 * u.m.to(u.cm)):
     """
     Function to read image files resulting from an RT with RADMC3D.
     """
@@ -809,13 +838,15 @@ def radmc3d_data(file_, npix=300, sizeau=50, distance=3.086e18 * u.m.to(u.cm)):
 def fill_gap(
     filename,
     outfile=None,
-    x1=143,
-    x2=158,
-    y1=143,
-    y2=157,
+    x1=123,
+    x2=168,
+    y1=123,
+    y2=167,
     threshold=1e-5,
-    incl="0deg",
+    fill_value=None, 
+    show=True, 
     savefile=True,
+    return_data=False,
 ):
     """
     Fill the central gap from polaris images with the peak flux
@@ -824,18 +855,29 @@ def fill_gap(
     # Read data
     d, hdr = fits.getdata(filename, header=True)
     d = d.squeeze()
-    full = d
-    gap = np.where(d[x1:x2, y1:y2] < threshold, d.max(), d[x1:x2, y1:y2])
-    full[x1:x2, y1:y2] = gap
-    plt.imshow(full, cmap="magma")
-    plt.colorbar()
-    plt.show()
+    
+    # Copy the original array
+    filled = d
+    fill_value = d.max() if fill_value is None else fill_value
+    gap = np.where(d[x1:x2, y1:y2] > threshold, fill_value, d[x1:x2, y1:y2])
+    filled[x1:x2, y1:y2] = gap
 
+    # Show the filled image
+    if show:
+        plt.imshow(filled, cmap="magma")
+        plt.colorbar()
+        plt.show()
+
+    # Append suffix to output filename if not provided
     if outfile is None:
-        outfile = filename.split(".fits")[0] + "_nogap.fits"
+        outfile = filename.split(".fits")[0] + "_filled.fits"
 
+    # Save the output file
     if savefile:
-        fits.writeto(outfile, data=full, header=hdr, overwrite=True)
+        fits.writeto(outfile, data=filled, header=hdr, overwrite=True)
+
+    if return_data:
+        return filled
 
 
 def circular_mask(shape, c, r, angle_range=(0, 360), ring=False):
@@ -874,14 +916,16 @@ def circular_mask(shape, c, r, angle_range=(0, 360), ring=False):
 
 @elapsed_time
 def radial_profile(
-    data,
-    slices=[0,0], 
+    fitsfile,
+    average='vertical', 
     func=np.nanmean,
     step=1,
+    bin_factor=1, 
+    nthreads=1,
     return_radii=False,
+    figsize=(8, 4.5), 
     show=False,
     savefig=None,
-    nthreads=1,
 	verbose=True,
     *args,
     **kwargs,
@@ -891,63 +935,134 @@ def radial_profile(
     by averaging the values within consecutive concentric circumferences
     from the border to the center.
     """
+    from astropy.nddata import block_reduce
+    from matplotlib.colors import LogNorm
     from concurrent.futures import ThreadPoolExecutor
 
-    def parallel_masking(i, r):
-        """Function created to parallelize the for loop
-        by means of a parallell map(func, args).
-        """
-        # Copy data to avoid propagating NaNs in the original array
-        d_copy = np.copy(data)
-        mask = circular_mask(d_copy.shape, center, r, ring=True)
-        d_copy[~mask] = np.NaN
-        averages[i] = func(d_copy)
-        del d_copy
+    def annular_average(image):
+        def parallel_masking(i, r):
+            """Function created to parallelize the for loop
+            by means of a parallell map(func, args).
+            """
+            # Copy data to avoid propagating NaNs in the original array
+            d_copy = np.copy(image)
+            mask = circular_mask(d_copy.shape, center, r, ring=True)
+            d_copy[~mask] = np.NaN
+            averages[i] = func(d_copy)
+            del d_copy
+
+        # Get the center of the array
+        map_radius_x = int(image[0].size / 2)
+        map_radius_y = int(image[1].size / 2)
+        center = (map_radius_x, map_radius_y)
+
+        # Masks are created from the border to the center because otherwise
+        # all masks other than r=0 would already be NaN.
+        radii = np.arange(0, map_radius_x, step)[::-1]
+        averages = np.zeros(radii.shape)
+
+        # Parallel iteration over radii
+        with ThreadPoolExecutor(max_workers = nthreads) as pool:
+            pool.map(parallel_masking, range(radii.size), radii)
+
+        # Reverse the averages to be given from the center to the border
+        averages = averages[::-1]
+        radii = radii[::-1] * dr
+    
+        return radii, averages
+
+    print_(f'The anular averages are paralelized using {nthreads} threads.', verbose)
 
     # Read data from fits file if filename is provided
-    if isinstance(data, (str,PosixPath)):
-        data, hdr = fits.getdata(data, header=True)
-        data = data[slices[0], slices[1]]
-        dr = hdr.get('CDELT1B')
+    if isinstance(fitsfile, (str,PosixPath)):
+        if average == 'midplane':
+    
+            # Read in fits file
+            print_('Read in data files ...', True)
+            data, hdr = fits.getdata(fitsfile, header=True)
+            data = data.squeeze()[0, 0]
+    
+            # Read the delta length from header. Axis B is in AU.
+            dr = hdr.get('CDELT1B')
+
+            print_(f'Averaging image at z = 0 AU', verbose)
+            # Calculate the average temp in annuli at different radii at z=0
+            radii, profiles = annular_average(data)
+
+        elif average == 'vertical':
+
+            # Read in fits file
+            print_('Read in data files ...', True)
+            data, hdr = fits.getdata(fitsfile, header=True)
+            data = data.squeeze()
+            
+            # Read the density file to add contours
+            dens = fits.getdata('dust_density_3d.fits.gz')
+            dens = dens.squeeze() * (u.kg/u.m**3).to(u.g/u.cm**3)
+
+            # Read the delta length from header. Axis B is in AU.
+            dr = hdr.get('CDELT1B')
+
+            # Bin down the array if requested
+            if bin_factor not in [1, [1,1,1]]:
+                data = block_reduce(data, bin_factor, func=np.mean)
+                dens = block_reduce(dens, bin_factor, func=np.mean)
+                dr = dr * bin_factor
+
+            # Calculate the average temp in annuli at different radii and z
+            ar_size = data.shape[0]
+            z_axis = np.linspace(-ar_size/2, ar_size/2, ar_size) * dr
+            
+            # Create a grid radii vs z-axis
+            temp_z = np.zeros((int(ar_size), int(ar_size/2)))
+            dens_z = np.zeros((int(ar_size), int(ar_size/2)))
+
+            for i, z in enumerate(data):
+                dz = np.round(z_axis[i], 2)
+                print_(f'Averaging slice at z = {dz} AU', verbose)
+                radii, temp_avg = annular_average(z)
+                radii, dens_avg = annular_average(dens[i])
+
+                # Populate the 2D temperature array
+                for j, r in enumerate(radii):
+                    temp_z[i][j] = temp_avg[j]
+                    dens_z[i][j] = dens_avg[j]
+
+            profiles = (radii, z_axis, temp_z)
+
     else:
+        # If the input is not a FITS file, read the delta length from stdin
         if show:
             dr = float(input('[radial_profile] Enter dr [AU]: '))
 
-    # Drop empty axes
-    data = data.squeeze()
-
-    # Get the center of the array
-    map_radius_x = int(data[0].size / 2)
-    map_radius_y = int(data[1].size / 2)
-    center = (map_radius_x, map_radius_y)
-
-    # Masks are created from the border to the center because otherwise
-    # all masks other than r=0 would already be NaN.
-    radii = np.arange(0, map_radius_x, step)[::-1]
-    averages = np.zeros(radii.shape)
-
-    # Parallel iteration over radii
-    with ThreadPoolExecutor(max_workers = nthreads) as pool:
-        pool.map(parallel_masking, range(radii.size), radii)
-
-    # Reverse the averages to be given from the center to the border
-    averages = averages[::-1]
-
-    # Generate the radial axis for plotting if required
-    if return_radii or show or savefig:
-        radii = radii[::-1] * dr
-
     # Plot the radial profile if required
     if show or savefig is not None:
-        plt.semilogx(radii, averages, *args, **kwargs)
-        plt.ylabel(r'$T_{\rm dust}$')
-        plt.xlabel(f"Radius (AU)")
+        fig = plt.figure(figsize=figsize)
+
+        if average == 'midplane':
+            plt.semilogx(radii, profiles, *args, **kwargs)
+            plt.ylabel(r'$T_{\rm dust}$ (K)')
+            plt.xlabel(f"Radius (AU)")
+
+        elif average == 'vertical':
+            plt.contourf(radii, z_axis, temp_z.clip(min=0, max=400), 
+                levels=90, *args, **kwargs)
+            plt.colorbar().set_label(r'$T_{\rm dust}$ (K)')
+            plt.contour(radii, z_axis, np.log10(dens_z), linewidths=0.6, 
+                levels=[-13.5], colors='white',)
+            plt.axhline(y=0, c='black', ls='-', lw=0.5)
+            plt.ylabel(r'$z$-axis (AU)')
+            plt.xlabel(f"Radius (AU)")
+            plt.xlim(0, 30)
+            plt.ylim(-10, 10)
+            plt.tight_layout()
+
         if isinstance(savefig, (str,PosixPath)) and len(savefig) > 0:
             plt.save(savefig)
         if show:
             plt.show()
 
-    return (radii, averages) if return_radii else averages
+    return (radii, profiles) if return_radii else profiles
 
 
 def stats(data, verbose=True, slice=None):
@@ -984,6 +1099,24 @@ def stats(data, verbose=True, slice=None):
 
     return stat
 
+
+def get_beam(filename, verbose=True):
+    """ Print or return the info from the header associated to the beam """
+    
+    data, hdr = fits.getdata(filename, header=True)
+
+    beam = {
+        'bmaj': hdr.get('BMAJ', default=0) * u.deg.to(u.arcsec), 
+        'bmin': hdr.get('BMIN', default=0) * u.deg.to(u.arcsec), 
+        'bpa': hdr.get('BPA', default=0), 
+    }
+    
+    print_(f"Bmaj: {beam['bmaj']:.2f} arcsec", verbose=verbose)
+    print_(f"Bmin: {beam['bmin']:.2f} arcsec", verbose=verbose)
+    print_(f"Bpa: {beam['bpa']:.2f} deg", verbose=verbose)
+
+    return beam
+        
 
 def maxpos(data, axis=None):
     """
@@ -1030,17 +1163,20 @@ def edit_header(filename, key, value, verbose=True):
     """
     data, header = fits.getdata(filename, header=True)
 
+    # Check if the key is already in the header
     value_ = header.get(key, default=None)
+
     if value_ is None:
-        print_(f"Keyword {key} unexistent. Adding it ...", verbose=verbose)
+        print_(f"Adding keyword {key} = {value}", verbose=verbose)
 
     else:
         print_(f"Keyword {key} already exists.", verbose=verbose)
-        print_(f"Changing it from {value_} to {value}.", verbose=verbose)
+        print_(f"Updating from {value_} to {value}.", verbose=verbose)
 
     header[key] = value
 
     write_fits(filename, data=data, header=header, overwrite=True, verbose=True)
+
 
 @elapsed_time
 def plot_map(
@@ -1128,9 +1264,24 @@ def plot_map(
     fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin, stretch=stretch)
     
     # Add contours if requested
-    if contours:
-        conts = fig.show_contour(colors='white', levels=8, returnlevels=True, alpha=0.5)
+    if contours == True:
+        conts = fig.show_contour(
+            colors='white', 
+            levels=8, 
+            returnlevels=True, 
+            alpha=0.5
+        )
         print_(f'contours: {conts}', verbose)
+
+    elif isinstance(contours, (str, PosixPath)):
+        conts = fig.show_contour(
+            str(contours), 
+            colors='white', 
+            levels=8, 
+            returnlevels=True, 
+            alpha=0.5
+        )
+        print_(f'Setting contours from external file: {conts}', verbose)
 
     # Auto set the colorbar label if not provided
     if cblabel is None and bright_temp:
@@ -1154,8 +1305,8 @@ def plot_map(
     fig.add_colorbar()
     fig.colorbar.set_location("top")
     fig.colorbar.set_axis_label_text(cblabel)
-    fig.colorbar.set_axis_label_font(size=15, weight=15)
-    fig.colorbar.set_font(size=15, weight=15)
+    fig.colorbar.set_axis_label_font(size=20, weight=15)
+    fig.colorbar.set_font(size=20, weight=15)
 
     # Frame and ticks
     fig.frame.set_color("black")
@@ -1167,7 +1318,7 @@ def plot_map(
 
     # Hide ticks and labels if FITS file is not a real obs.
     if "alma" not in str(filename_) or "vla" not in str(filename_):
-        print_(f'File: {filename_}. Hiding axis ticks and labels', verbose)
+        print_(f'File: {filename_}. Hiding axis ticks and labels', False)
         fig.axis_labels.hide()
 
     # Beam
@@ -1183,7 +1334,7 @@ def plot_map(
         if scalebar.unit in ['au', 'pc']:
             try:
                 D = 141 * u.pc
-                print_(f'Physical scalebar created for a distance of: {D}', verbose)
+                print_(f'Physical scalebar created for a distance of: {D}', verbose=False)
                 scalebar_ = (scalebar.to(u.cm) / D.to(u.cm)) * u.rad.to(u.arcsec)
                 fig.add_scalebar(scalebar_ * u.arcsec)
                 unit = f' {scalebar.unit}'
@@ -1341,6 +1492,8 @@ def polarization_map(
 
                 if 'dust_scattering' in pwd:
                     thermal_file = pwd.replace("dust_scattering", "dust_emission")
+                    thermal_file = thermal_file.replace("data", "dust_scat/data")
+                    print_(f'pwd: {pwd}', verbose=True, bold=True)
                 elif 'dust_mc' in pwd:
                     thermal_file = pwd.replace("dust_mc", "dust_th")
 
@@ -1549,9 +1702,15 @@ def polarization_map(
         rescale = 1 if rescale is None else rescale
         bright_temp = False
 
+    elif render.lower() in ["pa", "pangle", "polarization angle"]:
+        figname = f"{source}_pangle.fits"
+        cblabel = "Polarization angle (deg)"
+        rescale = 1 if rescale is None else rescale
+        bright_temp = False
+
     else:
         rescale = 1
-        raise ValueError("Wrong value for render. Must be i, q, u, pf, pi or tau.")
+        raise ValueError("Wrong value for render. Must be i, q, u, pf, pi, pa or tau.")
 
     # Plot the render quantity a colormap
     fig = plot_map(
@@ -1776,7 +1935,6 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
     return temp.value
 
 
-@elapsed_time
 def horizontal_cut(
     filename=None, 
     angles=None,
@@ -1792,6 +1950,7 @@ def horizontal_cut(
     savefig=None,
     bright_temp=True,
     return_data=False, 
+    verbose=False, 
     *args,
     **kwargs,
 ):
@@ -1921,8 +2080,9 @@ def horizontal_cut(
         # Plot the cuts from the simulated observations for every inclination angle
         for angle in [f"{i}deg" for i in angles]:
             # Read data
-            filename = prefix / f"amax{amax}/{lam}/{angle}/data/" /\
-                f"{lam}_{angle}_a{amax}_{'alma' if lam in ['1.3mm','3mm'] else 'vla'}.fits"
+            filename = prefix / f"amax{amax}/{lam}/{angle}/dust_scat/data/" /\
+                f"{'alma' if lam in ['1.3mm','3mm'] else 'vla'}_I.fits"
+
             data, hdr = fits.getdata(filename, header=True)
 
             # Drop empty axes. Flip and rescale
@@ -1934,7 +2094,7 @@ def horizontal_cut(
             plt.plot(
                 offset,
                 cut,
-                label=f"{angle} ", #+ r"($T_{\rm dust}=T_{\rm gas}$)",
+                label=f"{angle} ", 
                 *args,
                 **kwargs,
             )
@@ -2006,14 +2166,15 @@ def get_polaris_temp(binfile="grid_temp.dat"):
 @elapsed_time
 def tau_surface(
     densfile='dust_density_3d.fits.gz', 
-    tempfile='gas_temperature_3d.fits.gz', 
+    tempfile='dust_temperature_3d.fits.gz', 
     prefix='', 
     tau=1, 
+    los=0, 
     bin_factor=[1,1,1], 
     render='temperature', 
+    plot_tau=True, 
     amax='100um', 
-    gas2dust=100, 
-    convolve=True, 
+    convolve_map=True, 
     plot2D=False, 
     plot3D=True, 
     savefig=None, 
@@ -2030,10 +2191,14 @@ def tau_surface(
 
     from astropy.nddata.blocks import block_reduce
 
-    print_('Reading data from FITS file', verbose)
-    rho = fits.getdata(densfile).squeeze() * (u.kg/u.m**3)
+    print_(f'Reading density from FITS file: {densfile}', verbose)
+    print_(f'Reading temperature from FITS file: {tempfile}', verbose)
+    rho = fits.getdata(densfile).squeeze() * (u.kg/u.m**3).to(u.g/u.cm**3)
     temp = fits.getdata(tempfile).squeeze()
     hdr = fits.getheader(densfile)
+
+    # Read the delta length of a given axis from the header
+    dl = hdr[f'cdelt{[3, 2, 1][los]}'] * (u.m).to(u.cm)
 
     # Bin the array down before plotting, if required
     if bin_factor not in [1, [1,1,1]]:
@@ -2044,34 +2209,55 @@ def tau_surface(
 
         print_(f'Binning density grid ...', verbose)
         rho = block_reduce(rho, bin_factor, func=np.nanmean)
-        hdr['cdelt3'] *= bin_factor[0]
 
         print_(f'Binning temperature grid ...', verbose)
         temp = block_reduce(temp, bin_factor, func=np.nanmean)
 
+        # Rescale also the delta length by the binning factor
+        dl *= bin_factor[0]
+
         print_(f'Binned array shape: {temp.shape}', verbose)
 
-    # Dust opacities for a mixture of silicates and graphites
+    # Dust opacities for a mixture of silicates and graphites in units of cm2/g
     if amax == '10um':
         # Extinction opacity at 1.3 and 3 mm for amax = 10um
-        kappa_1mm = 0.149765 * (u.m**2/u.kg)
-        kappa_3mm = 0.058061 * (u.m**2/u.kg)
+        kappa_1mm = 1.50
+        kappa_3mm = 0.60
+        kappa_7mm = 0.23
+        kappa_18mm = 0.07
     elif amax == '100um':
         # Extinction opacity at 1.3 and 3 mm for amax = 1000um
-        kappa_1mm = 0.228971 * (u.m**2/u.kg)
-        kappa_3mm = 0.074914 * (u.m**2/u.kg)
+        kappa_1mm = 2.30
+        kappa_3mm = 0.75
+        kappa_7mm = 0.31
+        kappa_18mm = 0.12
     elif amax == '1000um':
         # Extinction opacity at 1.3 and 3 mm for amax = 1000um
-        kappa_1mm = 1.287900 * (u.m**2/u.kg)
-        kappa_3mm = 0.603334 * (u.m**2/u.kg)
+        kappa_1mm = 12.88
+        kappa_3mm = 6.120
+        kappa_7mm = 1.27
+        kappa_18mm = 0.09
 
-    # Surface density
-    dl = np.full(rho.shape, hdr['cdelt3']) * (u.m**3)
-    rho = (gas2dust / 100) * rho
-    sigma_3d = np.cumsum(rho * dl, axis=0)
-    op_depth_1mm = (sigma_3d * kappa_1mm).value
-    op_depth_3mm = (sigma_3d * kappa_3mm).value
-    rho = rho.value
+    # In the case of grain growth, combine the optical depth of the 2 dust pops
+    if amax != '100-1000um':
+        print_(f'Plotting for amax = {amax}', verbose)
+        sigma_3d_1mm = (rho * kappa_1mm * dl)
+        sigma_3d_3mm = (rho * kappa_3mm * dl)
+        sigma_3d_7mm = (rho * kappa_7mm * dl)
+        sigma_3d_18mm = (rho * kappa_18mm * dl)
+
+    else:
+        print_(f'Plotting for combined amax = {amax}', verbose)
+        # The following opacities are for amax100um including organics 
+        # and amax1000um without organics (i.e., sublimated).
+        sigma_3d_1mm = np.where(temp > 300, rho * 12.88 * dl, rho * 1.80 * dl)
+        sigma_3d_3mm = np.where(temp > 300, rho * 6.120 * dl, rho * 0.55 * dl)
+
+    # Integrate the (density * opacity) product to calculate the optical depth
+    op_depth_1mm = np.cumsum(sigma_3d_1mm, axis=los)
+    op_depth_3mm = np.cumsum(sigma_3d_3mm, axis=los)
+    op_depth_7mm = np.cumsum(sigma_3d_7mm, axis=los)
+    op_depth_18mm = np.cumsum(sigma_3d_18mm, axis=los)
 
     if plot2D and not plot3D:
         from astropy.convolution import convolve, convolve_fft, Gaussian2DKernel
@@ -2079,38 +2265,52 @@ def tau_surface(
         # Set all tau < 1 regions to a high number
         op_thick_1mm = np.where(op_depth_1mm < 1, op_depth_1mm.max(), op_depth_1mm)
         op_thick_3mm = np.where(op_depth_3mm < 1, op_depth_3mm.max(), op_depth_3mm)
+        op_thick_7mm = np.where(op_depth_7mm < 1, op_depth_7mm.max(), op_depth_7mm)
+        op_thick_18mm = np.where(op_depth_18mm < 1, op_depth_18mm.max(), op_depth_18mm)
 
         # Find the position of the minimum for tau > 1
         min_tau_pos_1mm = np.apply_along_axis(np.argmin, 0, op_thick_1mm).squeeze()
         min_tau_pos_3mm = np.apply_along_axis(np.argmin, 0, op_thick_3mm).squeeze()
+        min_tau_pos_7mm = np.apply_along_axis(np.argmin, 0, op_thick_7mm).squeeze()
+        min_tau_pos_18mm = np.apply_along_axis(np.argmin, 0, op_thick_18mm).squeeze()
     
         Td_tau1_1mm = np.zeros(temp[0].shape)
         Td_tau1_3mm = np.zeros(temp[0].shape)
+        Td_tau1_7mm = np.zeros(temp[0].shape)
+        Td_tau1_18mm = np.zeros(temp[0].shape)
 
         # Fill the 2D arrays with the temp. at the position of tau=1
         for i in range(min_tau_pos_1mm.shape[0]):
             for j in range(min_tau_pos_1mm.shape[1]):
                 Td_tau1_1mm[i,j] = temp[min_tau_pos_1mm[i,j], i, j]
                 Td_tau1_3mm[i,j] = temp[min_tau_pos_3mm[i,j], i, j]
+                Td_tau1_7mm[i,j] = temp[min_tau_pos_7mm[i,j], i, j]
+                Td_tau1_18mm[i,j] = temp[min_tau_pos_18mm[i,j], i, j]
         
         # Convolve the array with the beam from the observations at 1.3 and 3 mm
         def fwhm_to_std(obs):
-            bmaj = obs.header['bmaj']*u.deg.to(u.rad) * 141*u.pc.to(u.au) / hdr['cdelt1b'] 
-            bmin = obs.header['bmin']*u.deg.to(u.rad) * 141*u.pc.to(u.au) / hdr['cdelt1b'] 
+            scale = dl * u.cm.to(u.pc)
+            bmaj = obs.header['bmaj']*u.deg.to(u.rad) * (141 / scale) 
+            bmin = obs.header['bmin']*u.deg.to(u.rad) * (141 / scale) 
             bpa = obs.header['bpa']
             std_x = bmaj / np.sqrt(8 * np.log(2))
             std_y = bmin / np.sqrt(8 * np.log(2))
             return std_x, std_y, bpa
             
-        if convolve:
+        if convolve_map:
             print_('Convolving 2D temperature maps', verbose=True)
             std_x, std_y, bpa = fwhm_to_std(Observation('1.3mm'))
             Td_tau1_1mm = convolve_fft(Td_tau1_1mm, Gaussian2DKernel(std_x, std_y, bpa))
 
             std_x, std_y, bpa = fwhm_to_std(Observation('3mm'))
             Td_tau1_3mm = convolve_fft(Td_tau1_3mm, Gaussian2DKernel(std_x, std_y, bpa))
+
+            std_x, std_y, bpa = fwhm_to_std(Observation('7mm'))
+            Td_tau1_7mm = convolve_fft(Td_tau1_7mm, Gaussian2DKernel(std_x, std_y, bpa))
         
-        return Td_tau1_1mm.T, Td_tau1_3mm.T
+            std_x, std_y, bpa = fwhm_to_std(Observation('18mm'))
+            Td_tau1_18mm = convolve_fft(Td_tau1_18mm, Gaussian2DKernel(std_x, std_y, bpa))
+        return Td_tau1_1mm.T, Td_tau1_3mm.T, Td_tau1_7mm.T, Td_tau1_18mm.T
 
         
     if plot3D:
@@ -2126,43 +2326,78 @@ def tau_surface(
 
         # Select the quantity to render: density or temperature
         if render in ['d', 'dens', 'density']:
-            render = {'render': rho, 'label': r'log(Dust density (kg m^-3))'} 
+            render_quantity = rho 
+            plot_label = r'log(Dust density (kg m^-3))' 
         elif render in ['t', 'temp', 'temperature']:
-            render = {'render': temp, 'label': r'Dust Temperature (K)'} 
+            render_quantity = temp 
+            plot_label = r'Dust Temperature (K)' 
 
         # Filter the optical depth lying outside of a given temperature isosurface, 
         # e.g., at T > 100 K.
-        op_depth_1mm[temp < 180] = 0
-        op_depth_3mm[temp < 180] = 0
+        op_depth_1mm[temp < 150] = 0
+        op_depth_3mm[temp < 150] = 0
+        op_depth_7mm[temp < 150] = 0
+        op_depth_18mm[temp < 150] = 0
 
         # Plot the temperature
         rendplot = mlab.contour3d(
-            render['render'], 
+            render_quantity, 
             colormap='inferno', 
             opacity=0.5, 
-            vmin=90 if 'rhd' in str(pwd) else None, 
-            vmax=400 if 'rhd' in str(pwd) else None, 
-            contours=15, 
+            vmax=400, 
+            contours=10, 
         )
         figcb = mlab.colorbar(
             rendplot, 
             orientation='vertical', 
             title='',
         )
-        # Plot optical depth at 3mm
-        tauplot_1mm = mlab.contour3d(
-            op_depth_1mm, 
-            contours=[tau], 
-            color=(0, 1, 0), 
+
+        # Add the axes and outline of the box
+        mlab.axes(ranges=[-100, 100] * 3, 
+            xlabel='AU', ylabel='AU', zlabel='AU', nb_labels=5)
+
+        # Plot the temperature
+        densplot = mlab.contour3d(
+            rho, 
+            colormap='BuPu', 
             opacity=0.5, 
+            contours=5, 
         )
-        # Plot optical depth at 1mm
-        tauplot_3mm = mlab.contour3d(
-            op_depth_3mm,  
-            contours=[tau], 
-            color=(0, 0, 1), 
-            opacity=0.7, 
+        denscb = mlab.colorbar(
+            densplot, 
+            orientation='vertical', 
+            title='Dust Density (g/cm^3)',
         )
+        if plot_tau:
+            # Plot optical depth at 1mm
+            tauplot_1mm = mlab.contour3d(
+                op_depth_1mm, 
+                contours=[tau], 
+                color=(0, 1, 0), 
+                opacity=0.5, 
+            )
+           # Plot optical depth at 3mm
+            tauplot_3mm = mlab.contour3d(
+                op_depth_3mm,  
+                contours=[tau], 
+                color=(0, 0, 1), 
+                opacity=0.7, 
+            )
+           # Plot optical depth at 7mm
+            tauplot_7mm = mlab.contour3d(
+                op_depth_7mm,  
+                contours=[tau], 
+                color=(0.59, 0.41, 0.27), 
+                opacity=0.7, 
+            )
+           # Plot optical depth at 7mm
+            tauplot_18mm = mlab.contour3d(
+                op_depth_18mm,  
+                contours=[tau], 
+                color=(0.75, 0.34, 0.79), 
+                opacity=0.7, 
+            )
 
         # The following commands are meant to customize the scene and were 
         # generated with the recording option of the interactive Mayavi GUI.
@@ -2190,16 +2425,23 @@ def tau_surface(
         # Customize the iso-surfaces
         module_manager = engine.scenes[0].children[0].children[0]
         temp_surface = engine.scenes[0].children[0].children[0].children[0]
-        tau1_surface = engine.scenes[0].children[1].children[0].children[0]
-        tau3_surface = engine.scenes[0].children[2].children[0].children[0]
-        temp_surface.contour.minimum_contour = 100.0 if 'rhd' in str(pwd) else 0 
-        temp_surface.contour.maximum_contour = 400.0 if 'rhd' in str(pwd) else 0
-        temp_surface.actor.property.representation = 'wireframe'
-        tau1_surface.actor.property.representation = 'wireframe'
-        tau3_surface.actor.property.representation = 'wireframe'
+#        temp_surface.contour.minimum_contour = 70.0
+#        temp_surface.contour.maximum_contour = 400.0
+        temp_surface.actor.property.representation = 'surface'
         temp_surface.actor.property.line_width = 3.0
-        tau1_surface.actor.property.line_width = 3.0
-        tau3_surface.actor.property.line_width = 4.0
+        if plot_tau:
+            tau1_surface = engine.scenes[0].children[1].children[0].children[0]
+            tau3_surface = engine.scenes[0].children[2].children[0].children[0]
+            tau7_surface = engine.scenes[0].children[1].children[0].children[0]
+            tau18_surface = engine.scenes[0].children[2].children[0].children[0]
+            tau1_surface.actor.property.representation = 'wireframe'
+            tau3_surface.actor.property.representation = 'wireframe'
+            tau7_surface.actor.property.representation = 'wireframe'
+            tau18_surface.actor.property.representation = 'wireframe'
+            tau1_surface.actor.property.line_width = 3.0
+            tau3_surface.actor.property.line_width = 4.0
+            tau7_surface.actor.property.line_width = 3.0
+            tau18_surface.actor.property.line_width = 4.0
 
         # Adjust the colorbar
         lut = module_manager.scalar_lut_manager
@@ -2209,48 +2451,52 @@ def tau_surface(
         lut.label_text_property.italic = False
         lut.label_text_property.font_family = 'arial'
         lut.data_range = np.array([70., 400.])
-    
+
         # Add labels as text objects to the scene
         parametric_surface = ParametricSurface()
         engine.add_source(parametric_surface, scene)        
 
         label1 = Text()
         engine.add_filter(label1, parametric_surface)
-        label1.text = 'Dust Temperature (K)'
+        label1.text = plot_label
         label1.property.font_family = 'arial'
         label1.property.shadow = True
         label1.property.color = (0.86, 0.72, 0.21)
         label1.actor.position = np.array([0.02, 0.85])
         label1.actor.width = 0.30
 
-        label2 = Text()
-        engine.add_filter(label2, parametric_surface)
-        label2.text = 'Optically thick surface at 1.3mm'
-        label1.property.font_family = 'arial'
-        label2.property.color = (0.31, 0.60, 0.02)
-        label2.actor.position = np.array([0.02, 0.95])
-        label2.actor.width = 0.38
+        if plot_tau:
+            label2 = Text()
+            engine.add_filter(label2, parametric_surface)
+            label2.text = 'Optically thick surface at 1.3mm'
+            label1.property.font_family = 'arial'
+            label2.property.color = (0.31, 0.60, 0.02)
+            label2.actor.position = np.array([0.02, 0.95])
+            label2.actor.width = 0.38
 
-        label3 = Text()
-        engine.add_filter(label3, parametric_surface)
-        label3.text = 'Optically thick surface at 3mm'
-        label2.property.font_family = 'arial'
-        label3.property.color = (0.20, 0.40, 0.64)
-        label3.actor.position = [0.02, 0.915]
-        label3.actor.width = 0.355
+            label3 = Text()
+            engine.add_filter(label3, parametric_surface)
+            label3.text = 'Optically thick surface at 3mm'
+            label2.property.font_family = 'arial'
+            label3.property.color = (0.20, 0.40, 0.64)
+            label3.actor.position = [0.02, 0.915]
+            label3.actor.width = 0.355
 
-        label4 = Text()
-        engine.add_filter(label4, parametric_surface)
-        label4.text = 'Line of Sight'
-        label4.property.font_family = 'times'
-        label4.property.color = (0.8, 0.0, 0.0)
-        label4.actor.position = np.array([0.63, 0.90])
-        label4.actor.width = 0.20
+            label4 = Text()
+            engine.add_filter(label4, parametric_surface)
+            label4.text = 'Line of Sight'
+            label4.property.font_family = 'times'
+            label4.property.color = (0.8, 0.0, 0.0)
+            label4.actor.position = np.array([0.63, 0.90])
+            label4.actor.width = 0.20
 
         if savefig is not None:
             scene.scene.save(savefig)
 
-        return render['render'], op_depth_1mm, op_depth_3mm
+        if plot_tau:
+            return render_quantity, op_depth_1mm, op_depth_3mm, op_depth_7mm, op_depth_18mm
+        else:
+            return render_quantity
 
 
 def dust_mass(temp, flux, lam='1.3mm', gdratio=100, d=141*u.pc):
@@ -2361,4 +2607,71 @@ def plot_bfield_projection(filename='00260.hdf5', axis='z'):
     fig.colorbar(img, ax=ax)
 
     return fig
+
     
+def dust_temp_in_steady_state(regime='thick', alpha=0.02, r=1, between=[0, 1e3]):
+    """
+    Implement root finding to solve numerically for the dust temperature
+    in a steady state, i.e., when radiative cooling/heating = viscous heating.
+    """
+    from scipy.optimize import fsolve
+
+    T_irr = (420 * r**(-0.5))
+    sigma = 100 * u.g / u.cm**2 
+    kappa_0 = 5e-4 * u.cm**2 / u.g / u.K**2
+    omega = 1.4e-10 / u.s
+    k_B = c.k_B.cgs
+    sb = c.sigma_sb.cgs
+    m_H2 = 2 * c.m_p.cgs
+
+    # Optically thick limit
+    if regime == 'thick':
+        a_ = (sb / sigma / kappa_0).value
+        b_ = ((9/4) * alpha * sigma * omega * k_B / m_H2).value
+        c_ = ((sb / sigma / kappa_0) * T_irr**4).value
+
+        func = lambda T: a_*T**2 - b_*T - c_*T**-2
+
+    # Optically thin limit
+    elif regime == 'thin':
+        a_ = (sb * sigma * kappa_0).value
+        b_ = (sb * kappa_0 * sigma * T_irr**4).value
+        c_ = ((9/4) * alpha * sigma * omega * k_B / m_H2).value
+
+        func = lambda T: a_*T**6 - b_*T**2 - c_*T
+
+    else:
+        # Default to optically thick
+        print_('regime not defined. Assuming optically thick.', True)
+        dust_temp_in_steady_state(regime='thick')
+
+    # Call the root finding function
+    return fsolve(func, between)
+
+
+@elapsed_time
+def pipeline(amax=np.arange(300, 1000, 100), lam=[1.3, 3, 7, 18], verbose=True):
+
+    pwd = f'/home/jz/phd/rhd_disk/results/snap541/dust_emission/temp_eos/sg'
+
+    for a in amax:
+        for l in lam:
+            # Set and enter to the path for the current setup 
+            path = f'{pwd}/amax{a}um/{l}mm/0deg/dust_scat/data/'
+            print_(f'\n{path}', verbose=verbose, bold=True)
+            os.chdir(path)
+            plt.rcParams['interactive'] = False
+
+            # Create a single 2D map with Stokes I as the input for the synthetic obs. 
+            fig = polarization_map(show=False)
+            fig.close()
+
+            # Remove the empty maps created by polarization_map()
+            [os.remove(f'{path}/polaris_{i}.fits') for i in ['Q','U','V','pangle','pfrac','pi']]
+            # Run the synthetic observation
+            if l in [1.3, 3]:
+                os.system(f"casa --nologger -c alma_simulation.py")
+            else:
+                os.system(f"casa --nologger -c vla_simulation.py")
+
+
