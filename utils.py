@@ -815,7 +815,6 @@ def radmc3d_data(file_='image.out', npix=300, sizeau=50, distance=3.086e18 * u.m
     Function to read image files resulting from an RT with RADMC3D.
     """
 
-    print(f'[radmc_data] Reading file {file_.split("/")[-1]}')
     img = ascii.read(file_, data_start=5, guess=False)["1"]
 
     # Make a squared map
@@ -833,6 +832,64 @@ def radmc3d_data(file_='image.out', npix=300, sizeau=50, distance=3.086e18 * u.m
     img = img * ((pixsize) ** 2 / (distance) ** 2)
 
     return img
+
+
+def convert_opacity_file(
+    infile='dust_mixture_001.dat', 
+    outfile='dustkappa_polaris.inp', 
+    verbose=True,
+    show=True, 
+):
+    """
+    Convert dust opacity files from POLARIS to RADMC3D format.
+    """
+
+    # Read polaris file with dust info
+    print_(f'Reading in polaris dust file: {infile} in SI units', verbose)
+    d = ascii.read(infile, data_start=10)
+    
+    # Store the wavelenght, absorption and scattering opacities and assymetry g
+    lam = d['col1'] * u.m.to(u.micron)
+    kabs = d['col18'] * (u.m**2/u.kg).to(u.cm**2/u.g)
+    ksca = d['col20'] * (u.m**2/u.kg).to(u.cm**2/u.g)
+    g_HG = d['col9']
+
+    print_(f'Writing out radmc3d opacity file: {outfile} in CGS', verbose)
+    with open(outfile, 'w+') as f:
+        f.write('3\n')
+        f.write(f'{len(lam)}\n')
+        for i,l in enumerate(lam):
+            f.write(f'{l:.6e}\t{kabs[i]:.6e}\t{ksca[i]:.6e}\t{g_HG[i]:.6e}\n')
+    
+    if show:
+        print_(f'Plotting opacities ...', verbose)
+        plt.loglog(lam, kabs, '--', c='black', label=r'$\kappa_{\rm abs}$')
+        plt.loglog(lam, ksca, ':', c='black', label=r'$\kappa_{\rm sca}$')
+        plt.loglog(lam, kabs+ksca, '-', c='black', label=r'$\kappa_{\rm ext}$')
+        plt.legend()
+        plt.xlabel('Wavelength (microns)')
+        plt.ylabel(r'Dust opacity $\kappa$ (cm$^2$ g$^{-1}$)')
+        plt.xlim(1e-1, 1e5)
+        plt.ylim(1e-2, 1e4)
+        plt.tight_layout()
+    
+
+def radmc3d_casafits(fitsfile='radmc3d_I.fits', radmcimage='image.out'):
+    """ Read in an image.out file created by RADMC3D and generate a
+        FITS file with a CASA-compatible header, ready for a 
+        synthetic observation.
+    """
+    from radmc3dPy import image
+
+    im = image.readImage(radmcimage)
+    
+    im.writeFits(
+        fitsfile,
+        dpc=141, 
+        coord='16h32m22.63s -24d28m31.8s', 
+        casa=False,
+        stokes='I',
+    )
 
 
 def fill_gap(
@@ -1065,7 +1122,7 @@ def radial_profile(
     return (radii, profiles) if return_radii else profiles
 
 
-def stats(data, verbose=True, slice=None):
+def stats(data, verbose=False, slice=None):
     """
     Compute basic statistics of a array or a fits file.
     The functions used here ignore NaN values in the data.
@@ -2107,9 +2164,11 @@ def horizontal_cut(
 
 
 
-def get_polaris_temp(binfile="grid_temp.dat"):
-    """Read the binary output from a Polaris dust heating
-    simulation and return the dust temperature field.
+def get_polaris_temp_spherical(binfile="grid_temp.dat"):
+    """
+    Read the binary output from a Polaris dust heating
+    simulation in spherical coordinates and return the 
+    dust temperature field.
     """
     import struct
 
@@ -2160,7 +2219,70 @@ def get_polaris_temp(binfile="grid_temp.dat"):
             for q in range(3):
                 struct.unpack("d", f.read(8))
 
-        return temp
+        return temp.reshape(n_r, n_t, n_p)
+
+
+def get_polaris_temp_voronoi(binfile="grid_temp.dat"):
+    """
+    Read the binary output from a Polaris dust heating
+    in Voronoi grid structure and return the dust 
+    temperature field.
+    """
+    import struct
+
+    with open(binfile, "rb") as f:
+        # Read grid ID
+        ID = struct.unpack("H", f.read(2))
+
+        # Read N quantities
+        (n,) = struct.unpack("H", f.read(2))
+        ids = list()
+        for i in range(n):
+            (q, ) = struct.unpack("H", f.read(2))
+            ids.append(q)
+
+        # Read number of cells
+        (n_cells, ) = struct.unpack("d", f.read(8))
+        (l_max, ) = struct.unpack("d", f.read(8))
+        n_cells = int(n_cells)
+
+        x = np.zeros(n_cells)
+        y = np.zeros(n_cells)
+        z = np.zeros(n_cells)
+        temp = np.zeros(n_cells)
+
+        # Iterate over cells
+        for c in range(n_cells):
+            # Read x coordinates
+            (x[c], ) = struct.unpack("f", f.read(4))
+            # Read y coordinates
+            (y[c], ) = struct.unpack("f", f.read(4))
+            # Read z coordinates
+            (z[c], ) = struct.unpack("f", f.read(4))
+            # Read cell volumes
+            struct.unpack("d", f.read(8))
+
+            # Read the first quantities
+            temp_id = 2
+            for i in range(ids.index(temp_id)):
+                struct.unpack("f", f.read(4))
+
+            # Read the temperature
+            (temp[c],) = struct.unpack("f", f.read(4))
+
+            # Then keep reading till the end of the row
+            remaining_ids = len(ids) - ids.index(temp_id) - 1
+            for q in range(remaining_ids):
+                struct.unpack("f", f.read(4))
+
+            # Read the number of neighbours
+            (nn, ) = struct.unpack("f", f.read(4))
+            for n in range(int(nn)):
+                # To do: there's still a mismatch between the size of the
+                # buffers and the original data. Double check!
+                struct.unpack("f", f.read(4))
+
+        return np.stack((x, y, z, temp))
 
 
 @elapsed_time
@@ -2673,5 +2795,189 @@ def pipeline(amax=np.arange(300, 1000, 100), lam=[1.3, 3, 7, 18], verbose=True):
                 os.system(f"casa --nologger -c alma_simulation.py")
             else:
                 os.system(f"casa --nologger -c vla_simulation.py")
+
+
+@elapsed_time
+def interpolate_points(f=None, npoints=4, values=None, x=None, y=None, z=None, dims=3, render='interp', show=True, savefig=None):
+    """
+    Interpolate a given function in 2D or 3D
+    """
+    from scipy.interpolate import griddata
+
+    if dims == 3:
+        a = -1
+        b = 1
+        if None in [x.any(), y.any(), z.any()]:
+            # Construct a grid
+            grid_size = 50
+            x = np.linspace(a, b, grid_size)
+            y = np.linspace(a, b, grid_size)
+            z = np.linspace(a, b, grid_size)
+
+        X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+
+        # Define a function if not provided (a sphere)
+        if f is None:
+            f = lambda x, y, z: (x*x + y*y + z*z)**0.5
+            f = lambda x, y, z: (x*x + y*y - z*z)**0.5
+
+        # Generate random points to evaluate the function 
+        npoints = int(npoints)
+        rng = np.random.default_rng()
+        points = (b - a) * rng.random((npoints, dims)) + a
+        values = f(points[:,0], points[:,1], points[:,2])
+
+
+        interp = griddata(
+            points, f(points[:,0], points[:,1], points[:,2]), (X,Y,Z), 'linear')
+
+        if show:
+            from mayavi import mlab
+            from mayavi.api import Engine
+
+            # Initialaze the Mayavi scene
+            engine = Engine()
+            engine.start()
+
+            fig = mlab.figure(size=(1200,1100), bgcolor=(1,1,1), fgcolor=(0.5,0.5,0.5))
+
+            # Choose the field to plot: the original function or the interpolation
+            field = {'interp': interp, 'f': f(X, Y, Z)}
+
+            i = mlab.contour3d(X, Y, Z, 
+                field[render], 
+                opacity=0.75, 
+                contours=10, 
+                colormap='viridis'
+            )
+            p = mlab.points3d(points[:,0], points[:,1], points[:,2], 
+                np.ones(npoints), 
+                color=(0,0,0),
+                opacity=0.01,
+            )
+
+            # Define the representation for the points and the interpolation
+            ii = engine.scenes[0].children[0].children[0].children[0]
+            pp = engine.scenes[0].children[1].children[0].children[0]
+            ii.actor.property.representation = 'surface'
+            pp.actor.property.representation = 'points'
+            pp.actor.property.point_size = 4
+        
+            # Add a bounding box
+            mlab.outline()
+            
+            # Save the scene to image
+            if savefig is not None and isinstance(savefig, str):
+                scene = engine.scenes[0]
+                scene.scene.camera.compute_view_plane_normal()
+                scene.scene.render()
+                scene.scene.save(savefig)
+                mlab.close()
+
+    elif dims == 2:
+        from tqdm import tqdm
+
+        # Construct a grid
+        a = -1
+        b = 1
+        if None in [x, y]:
+            grid_size = 100
+            x = np.linspace(a, b, grid_size)
+            y = np.linspace(a, b, grid_size)
+            
+        X, Y = np.meshgrid(x, y)
+            
+        # Define a function if not provided (a circle)
+        f = lambda x, y: (x*x + y*y)**0.5
+
+        # Generate random points to evaluate the function
+        rng = np.random.default_rng()
+        points = (b - a) * rng.random((int(npoints), dims)) + a
+        values = f(points[:,0], points[:,1])
+
+        if show:
+            plt.figure(figsize=(10,10))
+
+            plt.subplot(211)
+            plt.title(r'$f(x,y) = \sqrt{x^2+y^2}$\\'+f'sampled at {int(n)} random points')
+            plt.imshow(f(X,Y).T, extent=(a,b,a,b), origin='lower')
+            plt.plot(points[:,0], points[:,1], 'k.', ms=2, color='black')
+            plt.yticks([])
+            plt.xticks([])
+
+            plt.subplot(212)
+            plt.title('Linear interpolation')
+            plt.imshow(griddata(points, values, (X,Y), method='linear').T,
+                extent=(a,b,a,b), origin='lower')
+            plt.yticks([])
+            plt.xticks([])
+
+            plt.tight_layout()
+            plt.show()
+
+
+@elapsed_time
+def interpolate_grid(ncells=100, points='all_frames/snap_541.dat', values=None, r_out=None, show=True, verbose=True):
+    """
+        Interpolate a set of points in cartesian coordinates along with their
+        values into a rectangular grid.
+        The box can be trimmed to a given radius r_out in units of au.
+    """
+    from scipy.interpolate import griddata
+    from mayavi import mlab
+    from tqdm import tqdm
+
+    if isinstance(points, str):
+        # Read point coordinates and values from file
+        print_(f'Reading point coordinates from file: {points}', verbose)
+        sph = read_sph(points, remove_sink=True)
+        x = sph[:, 2]
+        y = sph[:, 3]
+        z = sph[:, 4]
+        values = sph[:, 11] 
+
+    else:
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+
+    # Convert cartesian to spherical coordinates
+    r = np.sqrt(x*x + y*y + z*z)
+#    t = np.arctan2(y, x)
+#    p = np.arccos(z, r)
+
+    # Trim particles outside of a given radius
+    if r_out is not None:
+        print_(f'Trimming the box to a radius of {r_out} au ...', verbose)
+        r_out = r_out * u.au.to(u.cm)
+        
+        to_remove = []
+        for i in tqdm(range(x.size)):
+            if r[i] > r_out:
+                to_remove.append(i)
+
+        x = np.delete(x, to_remove)
+        y = np.delete(y, to_remove)
+        z = np.delete(z, to_remove)
+        values = np.delete(values, to_remove)
+        print_(f'{r.size - x.size} particles were not included in the grid', verbose)
+
+    # Construct the rectangular grid
+    print_('Constructing the grid ...', verbose)
+    r = np.linspace(x.min(), x.max(), ncells)
+    t = np.linspace(y.min(), y.max(), ncells)
+    p = np.linspace(z.min(), z.max(), ncells)
+    R, T, P = np.meshgrid(r, t, p)
+
+    # Interpolate the points and values at the grid points
+    print_('Interpolating the point values onto the grid ...', verbose)
+    interp = griddata(np.vstack([x,y,z]).T, values, (R,T,P), 'linear')
+
+    # Render the interpolated 3D field using Mayavi
+    if show:
+        print_('Visualizing the interpolated field ...', verbose)
+        mlab.contour3d(interp, contours=20, opacity=0.2)
+    
+    return interp
 
 
