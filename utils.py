@@ -99,7 +99,7 @@ class Bfield:
         return self.angle
 
 
-def print_(string, verbose=None, bold=False, fail=False, fname=None, *args, **kwargs):
+def print_(string, verbose=True, bold=False, fail=False, fname=None, *args, **kwargs):
 
     # Get the name of the calling function by tracing one level up in the stack
     fname = sys._getframe(1).f_code.co_name if fname is None else fname
@@ -163,7 +163,7 @@ def elapsed_time(caller):
     return wrapper
 
 
-def ring_bell(soundfile=None):
+def ring(soundfile=None):
     """ Play a sound from system. Useful to notify when another function finishes."""
     if not isinstance(soundfile, (str,PosixPath)):
         soundfile = "/usr/share/sounds/freedesktop/stereo/service-login.oga"
@@ -172,10 +172,11 @@ def ring_bell(soundfile=None):
 
 
 def plot_checkout(fig, show, savefig, path=""):
-    """Final step in every plotting routine:
-    - Check if the figure should be showed.
-    - Check if the figure should be saved.
-    - Return the figure, for further editing.
+    """
+    Final step in every plotting routine:
+        - Check if the figure should be showed.
+        - Check if the figure should be saved.
+        - Return the figure, for further editing.
     """
     # Turn path into a Path object for flexibility
     path = Path(path)
@@ -199,7 +200,7 @@ def parse(s, delimiter="%", d=None):
     containing the key:value pairs.
     """
     # Set the delimiter character
-    delimiter = d if isinstance(d, (str,PosixPath)) else d
+    delimiter = d if isinstance(d, (str,PosixPath)) else delimiter
 
     # Store all existing global and local variables
     g = globals()
@@ -2917,7 +2918,7 @@ def interpolate_points(f=None, npoints=4, values=None, x=None, y=None, z=None, d
 
 
 @elapsed_time
-def interpolate_grid(ncells=100, points='all_frames/snap_541.dat', values=None, r_out=None, show=True, verbose=True):
+def interpolate_grid(ncells=100, points='all_frames/snap_541.dat', values=None, field='temp', r_out=None, show=True, verbose=True):
     """
         Interpolate a set of points in cartesian coordinates along with their
         values into a rectangular grid.
@@ -2934,7 +2935,7 @@ def interpolate_grid(ncells=100, points='all_frames/snap_541.dat', values=None, 
         x = sph[:, 2]
         y = sph[:, 3]
         z = sph[:, 4]
-        values = sph[:, 11] 
+        values = {'temp': sph[:, 10], 'dens': sph[:, 11]}[field]
 
     else:
         x = points[:, 0]
@@ -2943,8 +2944,6 @@ def interpolate_grid(ncells=100, points='all_frames/snap_541.dat', values=None, 
 
     # Convert cartesian to spherical coordinates
     r = np.sqrt(x*x + y*y + z*z)
-#    t = np.arctan2(y, x)
-#    p = np.arccos(z, r)
 
     # Trim particles outside of a given radius
     if r_out is not None:
