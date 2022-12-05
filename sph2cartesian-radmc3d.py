@@ -3,8 +3,9 @@
     using RADMC3D for the raytracing and CASA for the ALMA simulation. 
 
     Example:
-    $ python3 sph2cartesian-radmc3d.py --sphfile snap_541.dat -rin 1 -rout 50 
-        -nr 200 -nph 100 -nth 100 --vtk --render --raytrace --synobs
+
+    $ python3 sph2cartesian-radmc3d.py --sphfile snap_001.dat --ncells 100 
+        --bbox 50 --show --vtk --render --raytrace --synobs
 
     For details, run:
     $ python3 sph2cartesian-radmc3d.py --help
@@ -24,6 +25,17 @@ from tqdm import tqdm
 class Pipeline:
     def __init__(self, lam=1300):
         self.lam = lam
+        self.steps = []
+
+    def create_grid(self, ncells=None, bbox=None, rout=None):
+        """ Initial step in the pipeline: creates an input grid for RADMC3D """
+
+        # Register the pipeline step 
+        self.steps.append('create_grid')
+
+        # Create and return a grid instance
+        self.grid = CartesianGrid(ncells=ncells, bbox=bbox, rout=rout)
+        return self.grid
     
     def radmc3d_banner(self):
         utils.print_(f'{"="*21}  <RADMC3D>  {"="*21}', bold=True)
@@ -32,32 +44,56 @@ class Pipeline:
         """ 
             Call radmc3d to calculate the radiative temperature distribution 
         """
+
+        # Register the pipeline step 
+        self.steps.append('monte_carlo')
+
         self.radmc3d_banner()
         os.system(f'radmc3d mctherm nphot {nphot}')
         self.radmc3d_banner()
 
     @utils.elapsed_time
-    def raytrace(self, incl, npix, sizeau, lam=None, show=True):
+    def raytrace(self, incl, npix, sizeau, lam=None, show=True, fitsfile='radmc3d_I.fits'):
+
         """ 
             Call radmc3d to raytrace the newly created grid and plot an image 
         """
         if lam is not None:
             self.lam = lam
     
+        # Register the pipeline step 
+        self.steps.append('raytrace')
+
         self.radmc3d_banner()
+
+        # Rotate implicitly by 180
+        incl = 180 - int(incl)
 
         # Stardard RADMC3D command
-        utils.print_(f'{sizeau=}', bold=True)
-        os.system(
-        f'radmc3d image lambda {self.lam} incl {incl} npix {npix} sizeau {sizeau}')
+        cmd = f'radmc3d image '
+        cmd += f'lambda {lam} ' if lam is not None else ' '
+        cmd += f'incl {incl} ' if incl is not None else ' '
+        cmd += f'npix {npix} ' if npix is not None else ' '
+        cmd += f'sizeau {sizeau}' if sizeau is not None else ' '
+
+        utils.print_(f'Executing command: {cmd}')
+        os.system(cmd)
 
         self.radmc3d_banner()
+
+        # Remove file if already existent
+        if os.path.exists(fitsfile):
+            os.remove(fitsfile)
+
+        # Generate a CASA compatible FITS file from the image.out
+        utils.radmc3d_casafits(fitsfile)
 
         # Plot the new image in Jy/pixel
         if show:
             utils.print_('Plotting image.out')
             img = utils.radmc3d_data('image.out', npix=npix, sizeau=sizeau)
-            plt.imshow(img, extent=[-sizeau/2, sizeau/2, -sizeau/2, sizeau/2])
+            plt.imshow(img, origin='lower', cmap='magma', 
+                extent=[-sizeau/2, sizeau/2, -sizeau/2, sizeau/2])
             plt.xlabel('AU')
             plt.ylabel('AU')
             plt.colorbar().set_label('Jy/pixel')
@@ -68,17 +104,13 @@ class Pipeline:
             Prepare the input for the CASA simulator from the RADMC3D output,
             and call CASA to run a synthetic observation.
         """
-        fitsfile = 'radmc3d_I.fits'
 
-        # Remove file if already existent
-        if os.path.exists(fitsfile):
-            os.remove(fitsfile)
-
-        # Generate a CASA compatible FITS file from the image.out
-        utils.radmc3d_casafits(fitsfile)
+        # Register the pipeline step 
+        self.steps.append('synobs')
 
         # Run the ALMA simulation script
         os.system('casa -c alma_simulation.py')
+
 
 
 class CartesianGrid(Pipeline):
@@ -225,9 +257,9 @@ class CartesianGrid(Pipeline):
         
         # Store the interpolated field
         if field == 'dens':
-            self.interp_dens = interp.T
+            self.interp_dens = interp
         elif field == 'temp':
-            self.interp_temp = interp.T
+            self.interp_temp = interp
 
 
     def write_grid_file(self):
@@ -272,6 +304,7 @@ class CartesianGrid(Pipeline):
         """ Write the density file """
         utils.print_('Writing dust density file')
 
+        # Flatten the array into a 1D fortran-style indexing
         density = self.interp_dens.ravel(order='F')
         with open('dust_density.inp','w+') as f:
             # Format number
@@ -280,7 +313,7 @@ class CartesianGrid(Pipeline):
             f.write(f'{density.size:d}\n')
             # Number of dust species
             f.write('1\n')                
-            # Flatten the array into a 1D fortran-style indexing
+            # Write the cell values
             for d in density:
                 f.write(f'{d:13.6e}\n')
 
@@ -288,6 +321,7 @@ class CartesianGrid(Pipeline):
         """ Write the temperature file """
         utils.print_('Writing dust temperature file')
         
+        # Flatten the array into a 1D fortran-style indexing
         temperature = self.interp_temp.ravel(order='F')
         with open('dust_temperature.dat','w+') as f:
             # Format number
@@ -296,7 +330,7 @@ class CartesianGrid(Pipeline):
             f.write(f'{temperature.size:d}\n')
             # Number of dust species
             f.write('1\n')                
-            # Flatten the array into a 1D fortran-style indexing
+            # Write the cell values
             for t in temperature:
                 f.write(f'{t:13.6e}\n')
 
@@ -339,27 +373,58 @@ if __name__ == "__main__":
         description='Convert from sphNG files into a RADMC3D regular cartesian grid')
 
     # Define command line options
-    parser.add_argument('--sphfile', action='store', default='snap_541.dat', 
+    parser.add_argument('--sphfile', action='store', default=None, 
         help='Name of the input SPH file.')
+
     parser.add_argument('-n', '--ncells', action='store', type=int, default=100,
         help='Number of cells in every direction.')
+
     exclusive = parser.add_mutually_exclusive_group() 
     exclusive.add_argument('--bbox', action='store', type=float, default=None, 
         help='Size of the side lenght of a bounding box in au (i.e., zoom in)')
+
     exclusive.add_argument('--rout', action='store', type=float, default=None, 
         help='Size of the outer radial boundary in au (i.e., zoom in).')
-    parser.add_argument('-s', '--show', action='store_true', default=False,
+
+    parser.add_argument('--show_grid', action='store_true', default=False,
         help='Plot the midplane of the newly created grid.')
+
     parser.add_argument('--vtk', action='store_true', default=False,
         help='Call RADCM3D to create a VTK file of the newly created grid.')
+
     parser.add_argument('--render', action='store_true', default=False,
         help='Visualize the VTK file using ParaView.')
+
     parser.add_argument('-mc', '--monte-carlo', action='store_true', default=False,
         help='Call RADMC3D to raytrace the new grid and plot an image')
+
+    parser.add_argument('--nphot', action='store', type=float, default=1e7,
+        help='Set the number of photons for the Monte Carlo temperature calculation.')
+
     parser.add_argument('-rt', '--raytrace', action='store_true', default=False,
         help='Call RADMC3D to raytrace the new grid and plot an image')
+
+    parser.add_argument('--lam', action='store', type=float, default=3000,
+        help='Wavelength used to generate an image')
+
+    parser.add_argument('--npix', action='store', type=int, default=300,
+        help='Number of pixels per side of new image')
+
+    parser.add_argument('--incl', action='store', type=float, default=0,
+        help='Inclination angle (in deg) of the grid to generate the image')
+
+    parser.add_argument('--sizeau', action='store', type=int, default=100,
+        help='Physical size of the image to generate in AU')
+
+    parser.add_argument('--show_rt', action='store_true', default=False,
+        help='Plot the intensity map generated by ray-tracing.')
+
     parser.add_argument('--synobs', action='store_true', default=False,
         help='Call CASA to run a synthetic observation from the new image')
+
+    parser.add_argument('--show_synobs', action='store_true', default=False,
+        help='Plot the ALMA/JVLA synthetic image generated by CASA')
+
 
     # Store the command-line given arguments
     cli = parser.parse_args()
@@ -368,57 +433,55 @@ if __name__ == "__main__":
     # Initialize the pipeline
     pipeline = Pipeline()
     
-    # Create a grid instance
-    grid = CartesianGrid(ncells=cli.ncells)
+    # Generate the input grid for RADMC3D
+    if cli.sphfile is not None:
+        
+        # Create a grid instance
+        grid = pipeline.create_grid(ncells=cli.ncells)
 
-    # Read the SPH data
-    grid.read_sph(cli.sphfile)
+        # Read the SPH data
+        grid.read_sph(cli.sphfile)
 
-    # Set a bounding box to trim the new grid
-    if cli.bbox is not None:
-        grid.trim_box(bbox=cli.bbox * u.au.to(u.cm))
+        # Set a bounding box to trim the new grid
+        if cli.bbox is not None:
+            grid.trim_box(bbox=cli.bbox * u.au.to(u.cm))
 
-    # Set a radius at which to trim the new grid
-    if cli.rout is not None:
-        grid.trim_box(rout=cli.rout * u.au.to(u.cm))
+        # Set a radius at which to trim the new grid
+        if cli.rout is not None:
+            grid.trim_box(rout=cli.rout * u.au.to(u.cm))
 
-    # Interpolate the SPH points onto a regular cartesian grid
-    grid.interpolate_points(field='dens', show=cli.show)
-    grid.interpolate_points(field='temp', show=cli.show)
+        # Interpolate the SPH points onto a regular cartesian grid
+        grid.interpolate_points(field='dens', show=cli.show_grid)
+        grid.interpolate_points(field='temp', show=cli.show_grid)
 
-    # Write the new cartesian grid to radmc3d file format
-    grid.write_grid_file()
+        # Write the new cartesian grid to radmc3d file format
+        grid.write_grid_file()
 
-    # Write the dust density distribution to radmc3d file format
-    grid.write_density_file()
-    
-    # Write the dust temperature distribution to radmc3d file format
-    grid.write_temperature_file()
-    
-    # Call RADMC3D to read the grid file and generate a VTK representation
-    if cli.vtk:
-        grid.create_vtk(dust_density=False, dust_temperature=True, rename=True)
-    
-    # Visualize the VTK grid file using ParaView
-    if cli.render:
-        grid.render()
+        # Write the dust density distribution to radmc3d file format
+        grid.write_density_file()
+        
+        # Write the dust temperature distribution to radmc3d file format
+        grid.write_temperature_file()
+        
+        # Call RADMC3D to read the grid file and generate a VTK representation
+        if cli.vtk:
+            grid.create_vtk(dust_density=False, dust_temperature=True, rename=True)
+        
+        # Visualize the VTK grid file using ParaView
+        if cli.render:
+            grid.render()
 
     # Run a thermal Monte-Carlo
     if cli.monte_carlo:
-        pipeline.monte_carlo(nphot=1e7)
+        pipeline.monte_carlo(nphot=cli.nphot)
 
-    # Call RADMC3D to raytrace the newly created grid and plot an image
+    # Run a ray-tracing on the new grid and generate an image
     if cli.raytrace:
-        if cli.bbox is not None:
-            pipeline.raytrace(lam=3000, incl=0, npix=300, 
-                sizeau=2*grid.bbox*u.cm.to(u.au), show=True)
+        pipeline.raytrace(lam=cli.lam, incl=cli.incl, npix=cli.npix, 
+            sizeau=cli.sizeau, show=cli.show_rt)
 
-        if cli.rout is not None:
-            pipeline.raytrace(lam=3000, incl=0, npix=300, 
-                sizeau=2*grid.rout*u.cm.to(u.au), show=False)
-
-    # Call CASA to run a synthetic observation from the new image
+    # Run a synthetic observation of the new image by calling the CASA simulator
     if cli.synobs:
-        pipeline.synthetic_observation(show=True)
+        pipeline.synthetic_observation(show=cli.show_synobs)
 
 
