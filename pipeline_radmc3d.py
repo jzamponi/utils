@@ -16,11 +16,12 @@
 import os
 import utils
 import argparse
+import requests
 import numpy as np
+from pathlib import Path
 import astropy.units as u
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
-from tqdm import tqdm
 from glob import glob
 
 
@@ -90,8 +91,15 @@ class Pipeline:
     def radmc3d_banner(self):
         utils.print_(f'{"="*21}  <RADMC3D>  {"="*21}', bold=True)
 
+    @staticmethod
+    def download_file(url):
+        """ Perform an HTTP GET request to fetch files from internet """ 
+
+        filename = url.split('/')[-1]
+        download = Path(filename).write_bytes(requests.get(url).content)
+
     def generate_input_files(self, inpfile=True, wavelength=True, stars=True, 
-            dustopac=True):
+            dustopac=True, dustkappa=True):
         """ Generate the necessary input files for radmc3d """
         if inpfile:
             # Create a RADMC3D input file
@@ -132,8 +140,15 @@ class Pipeline:
                 f.write('0\n')
                 f.write(f'sg-a{self.amax}um\n')
                 f.write('---------\n')
-            # Also fetch the corresponding opacity table
-            os.system(f'cp ~/infiles/dustkappa_sg-a{self.amax}um.inp .')
+
+        if dustkappa:
+            # Fetch the corresponding opacity table from a public repo
+            table = 'https://raw.githubusercontent.com/jzamponi/utils/main/' +\
+                f'opacity_tables/dustkappa_sg-a{self.amax}um.inp'
+
+            utils.print_(f'Downloading opacity table from: ')
+            utils.print_(f'{table}')
+            self.download_file(table)
             
 
     @utils.elapsed_time
@@ -151,7 +166,7 @@ class Pipeline:
         self.steps.append('monte_carlo')
 
     @utils.elapsed_time
-    def raytrace(self, incl, npix, sizeau, lam=None, show=True, 
+    def raytrace(self, incl, npix, sizeau, lam=None, show=True, noscat=False, 
             fitsfile='radmc3d_I.fits'):
 
         """ 
@@ -164,9 +179,18 @@ class Pipeline:
         if lam is not None:
             self.lam = lam
 
-        # Make sure all necessary radmc3d input files are available 
-        # in the current directory
-        self.generate_input_files()
+        self.scatmode = 0 if noscat else 2
+
+        # Make sure all necessary radmc3d input files are available in the
+        # current directory. To avoid overwriting the existing ones set 
+        # them to false in the following function call
+        self.generate_input_files(
+            inpfile=True,
+            wavelength=True,
+            stars=True,
+            dustopac=True,
+            dustkappa=True
+        )
         assert os.path.exists('amr_grid.inp')
         assert os.path.exists('dust_density.inp')
         assert os.path.exists('dust_temperature.dat')
@@ -220,8 +244,6 @@ class Pipeline:
             Prepare the input for the CASA simulator from the RADMC3D output,
             and call CASA to run a synthetic observation.
         """
-        import requests
-        from pathlib import Path
 
         utils.print_('Running the synthetic observtion ...\n', bold=True)
 
@@ -253,7 +275,7 @@ class Pipeline:
             utils.print_(f'No CASA script found. Downloading from: ', bold=True)
             utils.print_(f'{url}')
 
-            download = Path(script).write_bytes(requests.get(url).content)
+            self.download_file(url)
 
             # Tailor the script
             os.system(f"sed -i s/polaris/radmc3d/g {script}") 
@@ -348,15 +370,15 @@ class CartesianGrid(Pipeline):
                 f'half-length of {self.bbox * u.cm.to(u.au)} au')
 
             # Iterate over particles and delete upon reject
-            for i in tqdm(range(self.x.size)):
+            for i in range(self.x.size):
                 if self.x[i] < x1 or self.x[i] > x2:
                     to_remove.append(i)
 
-            for j in tqdm(range(self.y.size)):
+            for j in range(self.y.size):
                 if self.y[j] < y1 or self.y[j] > y2:
                     to_remove.append(j)
 
-            for k in tqdm(range(self.z.size)):
+            for k in range(self.z.size):
                 if self.z[k] < z1 or self.z[k] > z2:
                     to_remove.append(k)
 
@@ -370,7 +392,7 @@ class CartesianGrid(Pipeline):
             # Convert cartesian to polar coordinates to define a radial trim
             r = np.sqrt(self.x**2 + self.y**2 + self.z**2)
 
-            for i in tqdm(range(self.x.size)):
+            for i in range(self.x.size):
                 if r[i] > self.rout:
                     to_remove.append(i)
 
@@ -412,10 +434,40 @@ class CartesianGrid(Pipeline):
         interp = griddata(xyz, values, (X,Y,Z), 'linear', fill_value=self.fill)
 
         # Plot the midplane at z=0 using Matplotlib
+        plt.rcParams['image.cmap'] = 'magma'
+        plt.rcParams['xtick.direction'] = 'in'
+        plt.rcParams['ytick.direction'] = 'in'
+        plt.rcParams['xtick.top'] = True
+        plt.rcParams['ytick.right'] = True
+        plt.rcParams['ytick.minor.visible'] = True
+        plt.rcParams['xtick.minor.visible'] = True
+        plt.rcParams['legend.frameon'] = False
+        plt.rcParams['text.usetex'] = True
+        plt.rcParams['font.family'] = 'Times New Roman'
+        plt.rcParams['axes.titlesize'] = 15
+        plt.rcParams['axes.labelsize'] = 15
+        plt.rcParams['ytick.labelsize'] = 15
+        plt.rcParams['xtick.labelsize'] = 15
+        
         if show_2d:
             utils.print_('Plotting the grid midplane at z = 0')
-            plt.imshow(interp[:,:,self.ncells//2-1])
+            from matplotlib.colors import LogNorm
+            extent = [-self.bbox*u.cm.to(u.au), self.bbox*u.cm.to(u.au)] * 2
+            if field == 'dens':
+                plt.imshow(interp[:,:,self.ncells//2-1].T * 100, 
+                    norm=LogNorm(vmin=1e-15, vmax=2e-10),
+                    cmap='BuPu',
+                    extent=extent,
+                )
+            else:
+                plt.imshow(interp[:,:,self.ncells//2-1].T, 
+                    norm=LogNorm(vmin=80, vmax=None),
+                    cmap='inferno',
+                    extent=extent,
+                )
             plt.colorbar()
+            plt.xlabel('AU')
+            plt.ylabel('AU')
             plt.title({
                 'dens':r'Density Midplane at $z=0$ (g cm$^-3$)', 
                 'temp': 'Temperature Midplane at $z=0$ (K)'
@@ -579,6 +631,9 @@ if __name__ == "__main__":
     parser.add_argument('--nphot', action='store', type=float, default=1e7,
         help='Set the number of photons for the Monte Carlo temperature calculation.')
 
+    parser.add_argument('--nthreads', action='store', default=4, 
+        help='Number of threads used for the Monte-Carlo runs')
+
     parser.add_argument('-rt', '--raytrace', action='store_true', default=False,
         help='Call RADMC3D to raytrace the new grid and plot an image')
 
@@ -597,6 +652,9 @@ if __name__ == "__main__":
     parser.add_argument('--amax', action='store', type=int, default=10,
         help='Maximum dust grain size used to find the opacity table')
 
+    parser.add_argument('--noscat', action='store_true', default=False,
+        help='Turn off the addition of scattered flux to the thermal raytracing')
+
     parser.add_argument('--show-rt', action='store_true', default=False,
         help='Plot the intensity map generated by ray-tracing.')
 
@@ -610,9 +668,11 @@ if __name__ == "__main__":
     # Store the command-line given arguments
     cli = parser.parse_args()
 
-
     # Initialize the pipeline
     pipeline = Pipeline(lam=cli.lam, amax=cli.amax, nphot=cli.nphot)
+
+    # Set the number of threads for Monte-Carlo calculations
+    pipeline.nthreads = cli.nthreads
     
     # Generate the input grid for RADMC3D
     if cli.sphfile is not None:
@@ -627,11 +687,11 @@ if __name__ == "__main__":
     # Run a ray-tracing on the new grid and generate an image
     if cli.raytrace:
         pipeline.raytrace(lam=cli.lam, incl=cli.incl, npix=cli.npix, 
-            sizeau=cli.sizeau, show=cli.show_rt)
+            sizeau=cli.sizeau, show=cli.show_rt, noscat=cli.noscat)
 
     # Run a synthetic observation of the new image by calling the CASA simulator
     if cli.synobs:
         pipeline.synthetic_observation(show=cli.show_synobs, lam=cli.lam, 
-            graphic=False)
+            graphic=False, verbose=False)
 
 
