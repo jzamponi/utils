@@ -20,7 +20,7 @@ pwd = Path(os.getcwd())
 
 
 class color:
-    fail = "\033[91m"
+    red = "\033[91m"
     bold = "\033[1m"
     none = "\033[0m"
 
@@ -99,7 +99,7 @@ class Bfield:
         return self.angle
 
 
-def print_(string, verbose=True, bold=False, fail=False, fname=None, *args, **kwargs):
+def print_(string, verbose=True, bold=False, red=False, fname=None, *args, **kwargs):
 
     # Get the name of the calling function by tracing one level up in the stack
     fname = sys._getframe(1).f_code.co_name if fname is None else fname
@@ -111,11 +111,14 @@ def print_(string, verbose=True, bold=False, fail=False, fname=None, *args, **kw
 
     if verbose:
         if bold:
-            print(f"{color.bold}[{fname}] {string} {color.none}", *args, **kwargs)
-        elif fail:
-            print(f"{color.fail}[{fname}] {string} {color.none}", *args, **kwargs)
+            print(f"{color.bold}[{fname}] {string} {color.none}", flush=True, 
+                *args, **kwargs)
+        elif red:
+            print(f"{color.red}[{fname}] {string} {color.none}", flush=True, 
+                *args, **kwargs)
         else:
-            print(f"[{fname}] {string}", *args, **kwargs)
+            print(f"[{fname}] {string}", flush=True, 
+                *args, **kwargs)
 
 
 def write_fits(filename, data, header=None, overwrite=True, verbose=False):
@@ -148,14 +151,16 @@ def elapsed_time(caller):
             f = caller(*args, **kwargs)
         except KeyboardInterrupt:
             # Print the time even after sending SIGINT (Ctrl+C)
-            print_('\nExecution interrupted by user.', True)
+            print_('\nExecution interrupted by user.')
+        except Exception as e:
+            print_(e)
 
         # Measure time difference after it finishes
         run_time = time.time() - start
 
         # Print the elapsed time nicely formatted, if verbose is enabled
         print_(
-            f'Elapsed time: {time.strftime("%H:%M:%S", time.gmtime(run_time))}', 
+            f'Elapsed time: {time.strftime("%H:%M:%S", time.gmtime(run_time))}',
             verbose = True, 
             fname = caller.__name__
         )
@@ -1397,7 +1402,7 @@ def plot_map(
                 fig.add_scalebar(scalebar_ * u.arcsec)
                 unit = f' {scalebar.unit}'
             except Exception as e:
-                print_(f'Not able to add scale bar. Error: {e}', verbose=True, fail=True)
+                print_(f'Not able to add scale bar. Error: {e}', verbose=True, red=True)
 
         elif scalebar.unit in ['arcsec', 'deg']:
             fig.add_scalebar(scalebar)
@@ -1922,7 +1927,7 @@ def spectral_index(
 
         except Exception as e:
             plt.close()
-            print_(f"Imposible to use aplpy: {e}", True, bold=False, fail=True)
+            print_(f"Imposible to use aplpy: {e}", True, bold=False, red=True)
             print_(f"Plotting with Matplotlib...", True, bold=False)
 
             fig = plt.figure(figsize=figsize)

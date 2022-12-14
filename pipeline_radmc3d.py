@@ -5,11 +5,12 @@
 
     Example:
 
-    $ sph2cartesian-radmc3d.py --sphfile snap_001.dat --ncells 100 
-        --bbox 50 --show --vtk --render --raytrace --synobs
+    $ pipeline_radmc3d.py --sphfile snap_001.dat --ncells 100 --bbox 50
+        --show-grid-2d --show-grid-3d --raytrace --lam 3000 --amax 10 
+        --show-rt --synobs --show-synobs
 
     For details, run:
-    $ sph2cartesian-radmc3d.py --help
+    $ pipeline_radmc3d.py --help
 
 """
 
@@ -17,6 +18,7 @@ import os
 import utils
 import argparse
 import requests
+import subprocess
 import numpy as np
 from pathlib import Path
 import astropy.units as u
@@ -26,14 +28,28 @@ from glob import glob
 
 
 class Pipeline:
-    def __init__(self, lam=1300, amax=10, nphot=1e5, nthreads=4, 
-        polarization=False):
+    
+    def __init__(self, lam=1300, amax=10, nphot=1e5, nthreads=4, csubl=0, 
+            dgrowth=False, sootline=300, polarization=False):
         self.steps = []
         self.lam = int(lam)
         self.amax = str(int(amax))
         self.nphot = int(nphot)
         self.nthreads = int(nthreads)
         self.scatmode = 5 if polarization else 2
+        self.inputstyle = 10 if polarization else 1
+        self.wavelengths = np.logspace(-2, 8, 200)
+        self.csubl = csubl
+        self.nspec = 1 if self.csubl == 0 else 2
+        self.dcomp = ['sg', 'sg'] if self.csubl == 0 else ['sgo','sg']
+        self.sootline = sootline
+        self.dgrowth = dgrowth
+        self.rstar = 2e11
+        self.mstar = 3e22
+        self.tstar = 4000        
+        self.xstar = 0
+        self.ystar = 0
+        self.zstar = 0
 
     @utils.elapsed_time
     def create_grid(self, sphfile, ncells=None, bbox=None, rout=None, 
@@ -49,11 +65,15 @@ class Pipeline:
         self.steps.append('create_grid')
 
         # Create a grid instance
+        print('')
         utils.print_('Creating the input grid ...\n', bold=True)
         grid = CartesianGrid(
             ncells=self.ncells, 
             bbox=self.bbox, 
-            rout=rout,
+            rout=self.rout,
+            csubl=self.csubl, 
+            nspec=self.nspec, 
+            sootline=self.sootline, 
         )
 
         # Read the SPH data
@@ -114,52 +134,68 @@ class Pipeline:
         if wavelength: 
             # Create a wavelength grid in micron
             with open('wavelength_micron.inp', 'w+') as f:
-                grid = np.logspace(-2, 8, 200)
-                f.write(f'{grid.size}\n')
-                for lam in grid:
-                    f.write(f'{lam:13.6}\n')
+                f.write(f'{self.wavelengths.size}\n')
+                for wav in self.wavelengths:
+                    f.write(f'{wav:13.6}\n')
 
         if stars:
             # Create a stellar spectrum file
             with open('stars.inp', 'w+') as f:
-                grid = np.logspace(-2, 8, 200)
                 f.write('2\n')
-                f.write(f'1 {grid.size}\n')
-                f.write('2e11 3e32 0 0 0\n')
-                for lam in grid:
-                    f.write(f'{lam:13.6}\n')
-                f.write(f'{-4000}\n')
+                f.write(f'1 {self.wavelengths.size}\n')
+                f.write(f'{self.rstar} {self.mstar} ')
+                f.write(f'{self.xstar} {self.ystar} {self.zstar}\n')
+                for wav in self.wavelengths:
+                    f.write(f'{wav:13.6}\n')
+                f.write(f'{-self.tstar}\n')
 
         if dustopac:
             # Create a dust opacity file
             with open('dustopac.inp', 'w+') as f:
                 f.write('2\n')
-                f.write('1\n')
+                f.write(f'{self.nspec}\n')
                 f.write('---------\n')
-                f.write('1\n')
+                f.write(f'{self.inputstyle}\n')
                 f.write('0\n')
-                f.write(f'sg-a{self.amax}um\n')
+                f.write(f'{self.dcomp[0]}-a{self.amax}um\n')
+                if self.nspec > 1:
+                    # Define a second species 
+                    f.write('---------\n')
+                    f.write(f'{self.inputstyle}\n')
+                    f.write('0\n')
+                    if self.dgrowth:
+                        f.write(f'{self.dcomp[1]}-a1000um\n')
+                    else:
+                        f.write(f'{self.dcomp[1]}-a{self.amax}um\n')
                 f.write('---------\n')
 
         if dustkappa:
             # Fetch the corresponding opacity table from a public repo
             table = 'https://raw.githubusercontent.com/jzamponi/utils/main/' +\
-                f'opacity_tables/dustkappa_sg-a{self.amax}um.inp'
+                f'opacity_tables/dustkappa_{self.dcomp[0]}-a{self.amax}um.inp'
 
             utils.print_(f'Downloading opacity table from: ')
             utils.print_(f'{table}')
             self.download_file(table)
+            if self.csubl > 0:
+                # Download also the table for a second dust composition
+                table = table.replace(f'{self.dcomp[0]}', f'{self.dcomp[1]}')
+                if self.dgrowth:
+                    # Download also the table for grown dust
+                    table = table.replace(f'{self.amax}', '1000') 
+                self.download_file(table)
             
-
     @utils.elapsed_time
     def monte_carlo(self, nphot):
         """ 
             Call radmc3d to calculate the radiative temperature distribution 
         """
 
+        print('')
+        utils.print_("Running a thermal Monte Carlo ...", bold=True)
         self.nphot = nphot
         self.radmc3d_banner()
-        os.system(f'radmc3d mctherm nphot {self.nphot}')
+        subprocess.run(f'radmc3d mctherm nphot {self.nphot}'.split())
         self.radmc3d_banner()
 
         # Register the pipeline step 
@@ -173,6 +209,7 @@ class Pipeline:
             Call radmc3d to raytrace the newly created grid and plot an image 
         """
 
+        print('')
         utils.print_("Ray-tracing the grid's density and temperature ...\n", 
         bold=True)
 
@@ -205,6 +242,7 @@ class Pipeline:
 
         # Set the RADMC3D command
         cmd = f'radmc3d image '
+        #cmd = f'radmc3d-notherm image debug_set_thermemistot_to_zero '
         cmd += f'lambda {lam} ' if lam is not None else ' '
         cmd += f'incl {incl} ' if incl is not None else ' '
         cmd += f'npix {npix} ' if npix is not None else ' '
@@ -213,7 +251,7 @@ class Pipeline:
         # Call RADMC3D
         utils.print_(f'Executing command: {cmd}')
         self.radmc3d_banner()
-        os.system(cmd)
+        subprocess.run(cmd.split())
         self.radmc3d_banner()
 
         # Remove file if already existent
@@ -245,7 +283,8 @@ class Pipeline:
             and call CASA to run a synthetic observation.
         """
 
-        utils.print_('Running the synthetic observtion ...\n', bold=True)
+        print('')
+        utils.print_('Running synthetic observation ...\n', bold=True)
 
         # Read in the current pipeline wavelength
         lam = self.lam if lam is None else str(int(lam))
@@ -278,28 +317,30 @@ class Pipeline:
             self.download_file(url)
 
             # Tailor the script
-            os.system(f"sed -i s/polaris/radmc3d/g {script}") 
+            subprocess.run(f"sed -i s/polaris/radmc3d/g {script}", shell=True) 
             if lam == '3mm':
-                os.system(f"sed -i '55,61d' {script}")
+                subprocess.run(f"sed -i '55,61d' {script}", shell=True)
             if not graphic:
-                os.system(f"sed -i 's/both/file/g' {script}")
+                subprocess.run(f"sed -i 's/both/file/g' {script}", shell=True)
             if not verbose:
-                os.system(f"sed -i 's/verbose = True/verbose = False/g' {script}")
+                subprocess.run(
+                f"sed -i 's/verbose = True/verbose = False/g' {script}",
+                shell=True)
 
         # Delete any previous project to avoid the script clashing
         if len(glob('band*')) > 0:
-            os.system('rm -r band*')
+            subprocess.run('rm -r band*', shell=True)
 
         # Run the ALMA/JVLA simulation script
-        os.system(f'casa -c {script} --nologger')
+        subprocess.run(f'casa -c {script} --nologger'.split())
 
         # Show the new synthetic image
         if show:
-            os.system(f'ds9 radmc3d_I.fits {obs}_I.fits')
+            subprocess.run(f'ds9 radmc3d_I.fits {obs}_I.fits'.split())
 
         # Clean-up and remove unnecessary files created by CASA
         if cleanup:
-            os.system('rm *.last casa-*.log')
+            subprocess.run('rm *.last casa-*.log', shell=True)
 
         # Register the pipeline step 
         self.steps.append('synobs')
@@ -307,9 +348,10 @@ class Pipeline:
 
 
 class CartesianGrid(Pipeline):
-    def __init__(self, ncells, bbox=None, rout=None):
+    def __init__(self, ncells, bbox=None, rout=None, fill='min', csubl=0, 
+            nspec=1, sootline=300):
         """ 
-        Create a cartesian grid from a set of 3D point.
+        Create a cartesian grid from a set of 3D points.
 
         The input SPH particle coordinates should be given as cartesian 
         coordinates in units of cm.
@@ -328,17 +370,24 @@ class CartesianGrid(Pipeline):
         self.bbox = bbox
         self.rout = rout
         self.g2d = 100
-        self.fill = 0
+        self.fill = fill
+        self.csubl = csubl
+        self.nspec = nspec
+        self.sootline = sootline
+        self.carbon = 0.375
+        self.subl_mfrac = 1 - self.carbon * self.csubl/100
 
     def read_sph(self, filename):
         """ Read SPH data """
+
         utils.print_(f'Reading point coordinates and values from: {filename}')
+        if not os.path.exists(filename): 
+            raise FileNotFoundError('Input SPH file does not exist')
+
         self.sph = utils.read_sph(filename, remove_sink=True, cgs=True)
         self.x = self.sph[:, 2]
         self.y = self.sph[:, 3]
         self.z = self.sph[:, 4]
-        self.mass = self.sph[:, 8] / self.g2d
-        self.h = self.sph[:, 9][::-1]
         self.dens = self.sph[:, 10] / self.g2d
         self.temp = self.sph[:, 11]
         self.npoints = len(self.dens)
@@ -430,28 +479,16 @@ class CartesianGrid(Pipeline):
             values = self.temp
 
         # Interpolate the point values at the grid points
+        fill = np.min(values) if self.fill == 'min' else self.fill
         xyz = np.vstack([self.x, self.y, self.z]).T
-        interp = griddata(xyz, values, (X,Y,Z), 'linear', fill_value=self.fill)
+        interp = griddata(xyz, values, (X,Y,Z), 'linear', fill_value=fill)
 
         # Plot the midplane at z=0 using Matplotlib
-        plt.rcParams['image.cmap'] = 'magma'
-        plt.rcParams['xtick.direction'] = 'in'
-        plt.rcParams['ytick.direction'] = 'in'
-        plt.rcParams['xtick.top'] = True
-        plt.rcParams['ytick.right'] = True
-        plt.rcParams['ytick.minor.visible'] = True
-        plt.rcParams['xtick.minor.visible'] = True
-        plt.rcParams['legend.frameon'] = False
-        plt.rcParams['text.usetex'] = True
-        plt.rcParams['font.family'] = 'Times New Roman'
-        plt.rcParams['axes.titlesize'] = 15
-        plt.rcParams['axes.labelsize'] = 15
-        plt.rcParams['ytick.labelsize'] = 15
-        plt.rcParams['xtick.labelsize'] = 15
-        
         if show_2d:
-            utils.print_('Plotting the grid midplane at z = 0')
             from matplotlib.colors import LogNorm
+            utils.print_('Plotting the grid midplane at z = 0')
+            plt.rcParams['text.usetex'] = True
+            plt.rcParams['font.family'] = 'Times New Roman'
             extent = [-self.bbox*u.cm.to(u.au), self.bbox*u.cm.to(u.au)] * 2
             if field == 'dens':
                 plt.imshow(interp[:,:,self.ncells//2-1].T * 100, 
@@ -533,61 +570,79 @@ class CartesianGrid(Pipeline):
         # Flatten the array into a 1D fortran-style indexing
         density = self.interp_dens.ravel(order='F')
         with open('dust_density.inp','w+') as f:
-            # Format number
             f.write('1\n')                      
-            # Number of cells
             f.write(f'{density.size:d}\n')
-            # Number of dust species
-            f.write('1\n')                
-            # Write the cell values
-            for d in density:
-                f.write(f'{d:13.6e}\n')
+            f.write(f'{self.nspec}\n')                
+
+            if self.nspec == 1:
+                # Write a single dust species
+                for d in density:
+                    f.write(f'{d:13.6e}\n')
+            else:
+                utils.print_(f'Writing two density species ...')
+                # Write two densities: 
+                # one with original value outside the sootline and zero within 
+                temp1d = self.interp_temp.ravel(order='F')
+                for i, d in enumerate(density):
+                    if temp1d[i] < self.sootline:
+                        f.write(f'{d:13.6e}\n')
+                    else:
+                        f.write('0\n')
+
+                # one with zero outside the sootline and reduced density within
+                for i, d in enumerate(density):
+                    if temp1d[i] < self.sootline:
+                        f.write('0\n')
+                    else:
+                        f.write(f'{(d * self.subl_mfrac):13.6e}\n')
+
 
     def write_temperature_file(self):
         """ Write the temperature file """
         utils.print_('Writing dust temperature file')
         
-        # Flatten the array into a 1D fortran-style indexing
         temperature = self.interp_temp.ravel(order='F')
         with open('dust_temperature.dat','w+') as f:
-            # Format number
             f.write('1\n')                      
-            # Number of cells
             f.write(f'{temperature.size:d}\n')
-            # Number of dust species
-            f.write('1\n')                
-            # Write the cell values
-            for t in temperature:
-                f.write(f'{t:13.6e}\n')
+            f.write(f'{self.nspec}\n')                
+
+            # Write the temperature Nspec times for Nspec dust species
+            for i in range(self.nspec):
+                for t in temperature:
+                    f.write(f'{t:13.6e}\n')
+
 
     def create_vtk(self, dust_density=False, dust_temperature=True, rename=False):
         """ Call radmc3d to create a VTK file of the grid """
         self.radmc3d_banner()
 
         if dust_density:
-            os.system('radmc3d vtk_dust_density 1')
+            subprocess.run('radmc3d vtk_dust_density 1'.split())
             if rename:
-                os.system('mv model.vtk model_dust_density.vtk')
+                subprocess.run('mv model.vtk model_dust_density.vtk'.split())
 
         if dust_temperature:
-            os.system('radmc3d vtk_dust_temperature 1')
+            subprocess.run('radmc3d vtk_dust_temperature 1'.split())
             if rename:
-                os.system('mv model.vtk model_dust_temperature.vtk')
+                subprocess.run('mv model.vtk model_dust_temperature.vtk'.split())
 
         if not dust_density and not dust_temperature:
-            os.system('radmc3d vtk_grid')
+            subprocess.run('radmc3d vtk_grid'.split())
 
         self.radmc3d_banner()
 
     def render(self, state=None, dust_density=False, dust_temperature=True):
         """ Render the new grid in 3D using ParaView """
         if isinstance(state, str):
-            os.system(f'paraview --state {state} 2>/dev/null')
+            subprocess.run(f'paraview --state {state} 2>/dev/null'.split())
         else:
             if dust_density:
-                os.system(f'paraview model_dust_density.vtk 2>/dev/null')
+                subprocess.run(
+                    f'paraview model_dust_density.vtk 2>/dev/null'.split())
             elif dust_temperature:
-                os.system(f'paraview model_dust_temperature.vtk 2>/dev/null')
+                subprocess.run(
+                    f'paraview model_dust_temperature.vtk 2>/dev/null'.split())
 
 
 
@@ -600,36 +655,39 @@ if __name__ == "__main__":
         'run a raytracing and synthetic ALMA/JVLA observation.')
 
     # Define command line options
-    parser.add_argument('--sphfile', action='store', default=None, 
-        help='Name of the input SPH file.')
+    parser.add_argument('-g', '--grid', action='store_true', default=False, 
+        help='Create an input grid for the radiative transfer')
 
-    parser.add_argument('-n', '--ncells', action='store', type=int, default=100,
-        help='Number of cells in every direction.')
+    parser.add_argument('--sphfile', action='store', default='', 
+        help='Name of the input SPH file')
+
+    parser.add_argument('--ncells', action='store', type=int, default=100,
+        help='Number of cells in every direction')
 
     exclusive = parser.add_mutually_exclusive_group() 
     exclusive.add_argument('--bbox', action='store', type=float, default=None, 
         help='Size of the side lenght of a bounding box in au (i.e., zoom in)')
 
     exclusive.add_argument('--rout', action='store', type=float, default=None, 
-        help='Size of the outer radial boundary in au (i.e., zoom in).')
+        help='Size of the outer radial boundary in au (i.e., zoom in)')
 
     parser.add_argument('--show-grid-2d', action='store_true', default=False,
-        help='Plot the midplane of the newly created grid.')
+        help='Plot the midplane of the newly created grid')
 
     parser.add_argument('--show-grid-3d', action='store_true', default=False,
         help='Render the new cartesian grid in 3D')
 
     parser.add_argument('--vtk', action='store_true', default=False,
-        help='Call RADCM3D to create a VTK file of the newly created grid.')
+        help='Call RADCM3D to create a VTK file of the newly created grid')
 
     parser.add_argument('--render', action='store_true', default=False,
-        help='Visualize the VTK file using ParaView.')
+        help='Visualize the VTK file using ParaView')
 
     parser.add_argument('-mc', '--monte-carlo', action='store_true', default=False,
         help='Call RADMC3D to raytrace the new grid and plot an image')
 
     parser.add_argument('--nphot', action='store', type=float, default=1e7,
-        help='Set the number of photons for the Monte Carlo temperature calculation.')
+        help='Set the number of photons for the Monte Carlo temperature calculation')
 
     parser.add_argument('--nthreads', action='store', default=4, 
         help='Number of threads used for the Monte-Carlo runs')
@@ -653,10 +711,19 @@ if __name__ == "__main__":
         help='Maximum dust grain size used to find the opacity table')
 
     parser.add_argument('--noscat', action='store_true', default=False,
-        help='Turn off the addition of scattered flux to the thermal raytracing')
+        help='Turn off the addition of scattered flux to the thermal flux')
+
+    parser.add_argument('--sublimation', action='store', type=float, default=0,
+        help='Percentage of refractory carbon that evaporates from the dust')
+
+    parser.add_argument('--soot-line', action='store', type=float, default=300,
+        help='Temperature at which carbon is supposed to sublimate')
+
+    parser.add_argument('--dust-growth', action='store_true', default=False,  
+        help='Enable dust growth within the soot-line')
 
     parser.add_argument('--show-rt', action='store_true', default=False,
-        help='Plot the intensity map generated by ray-tracing.')
+        help='Plot the intensity map generated by ray-tracing')
 
     parser.add_argument('--synobs', action='store_true', default=False,
         help='Call CASA to run a synthetic observation from the new image')
@@ -669,13 +736,13 @@ if __name__ == "__main__":
     cli = parser.parse_args()
 
     # Initialize the pipeline
-    pipeline = Pipeline(lam=cli.lam, amax=cli.amax, nphot=cli.nphot)
+    pipeline = Pipeline(lam=cli.lam, amax=cli.amax, nphot=cli.nphot, 
+        nthreads=cli.nthreads, csubl=cli.sublimation, sootline=cli.soot_line, 
+        dgrowth=cli.dust_growth
+        )
 
-    # Set the number of threads for Monte-Carlo calculations
-    pipeline.nthreads = cli.nthreads
-    
     # Generate the input grid for RADMC3D
-    if cli.sphfile is not None:
+    if cli.grid:
         pipeline.create_grid(sphfile=cli.sphfile, ncells=cli.ncells, 
             bbox=cli.bbox, rout=cli.rout, show_2d=cli.show_grid_2d, 
             show_3d=cli.show_grid_3d, vtk=cli.vtk, render=cli.render)
