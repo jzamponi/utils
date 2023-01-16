@@ -18,12 +18,15 @@
 """
 
 import sys
+import itertools
 import progressbar
 import numpy as np
 from pathlib import Path
 from astropy.io import ascii
 from astropy import units as u
 from time import time, strftime, gmtime
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from scipy.interpolate import interp1d, splrep, splev
 import utils
 
@@ -187,7 +190,7 @@ class Dust():
         return eps_mean.real.squeeze(), eps_mean.imag.squeeze()
         
     def get_efficiencies(self, a, nang=3, algorithm='bhmie', coat=None, 
-            verbose=True):
+            verbose=True, parallel_counter=0):
         """ 
             Compute the extinction, scattering and absorption
             efficiencies (Q) by calling bhmie or bhcoat.
@@ -205,12 +208,12 @@ class Dust():
               - gsca: Assymetry parameter for Henyey-Greenstein scattering
         """
 
-        if nang >=2:
+        if nang >= 2:
             self.nang = nang
         else:
             raise ValueError('nang must be greater or equal than 2')
 
-        self.angles = np.linspace(0, 180, nang)
+        self.angles = np.linspace(0, 180, self.nang)
         self.mass  = (4 / 3 * np.pi) * self.dens * a**3
         self.Qext = np.zeros(self.l.size)
         self.Qsca = np.zeros(self.l.size)
@@ -225,7 +228,7 @@ class Dust():
         self.current_a = a
 
         utils.print_('Calulating dust efficiencies Q for a grain size of '+\
-            f'{a} microns', verbose=verbose)
+            f'{np.round(a*u.cm.to(u.micron), 1)} microns', verbose=verbose)
 
         # Calculate dust efficiencies for a bare grain
         if algorithm.lower() == 'bhmie':
@@ -325,10 +328,22 @@ class Dust():
         else:
             raise ValueError(f'Invalid value for algorithm = {algorithm}.')
 
+        # Print a simpler progress meter if using multiprocessing
+        if self.nproc > 1:
+            i = parallel_counter
+            counter = i * 100 / self.a.size
+            endl = '\r' if i != self.a.size-1 else '\n'
+            bar = (' ' * 20).replace(" ", "⣿⣿", int(counter / 100 * 20))
+            sys.stdout.write(f'[get_efficiencies] Using {self.nproc} processes'+\
+                f' | Progress: {counter} % |{bar}| {endl}')
+            sys.stdout.flush()
+
         return self.Qext, self.Qsca, self.Qabs, self.gsca
-    
+
+        
+    @utils.elapsed_time
     def get_opacities(self, a=np.logspace(-1, 2, 100), q=-3.5, 
-            algorithm='bhmie', nang=2):
+            algorithm='bhmie', nang=2, nproc=1):
         """ 
             Convert the dust efficiencies into dust opacities by integrating 
             them over a range of grain sizes. Assumes grain sizes are given in
@@ -352,37 +367,63 @@ class Dust():
         self.amax = self.a.max()
         self.q = q
         self.na = np.size(self.a)
+        self.nang = nang
+        self.angles = np.linspace(0, 180, nang)
         self.kext = np.zeros(self.l.size)
         self.ksca = np.zeros(self.l.size)
         self.kabs = np.zeros(self.l.size)
         self.gsca = np.zeros(self.l.size)
-        Qext_a = list()
-        Qsca_a = list()
-        Qabs_a = list()
+        self.Qext_a = []
+        self.Qsca_a = []
+        self.Qabs_a = []
+        self.nproc = nproc
  
         utils.print_(f'Calculating dust efficiencies for {self.na} grain ' +\
             f'sizes between {a.min()} and {int(a.max())} microns ...')
 
-        # Customize the progressbar
-        widgets = ['[get_opacities] ', progressbar.Timer(), ' ',  
-            progressbar.GranularBar(' ⡀⡄⡆⡇⣇⣧⣷⣿')]
+        # Serial execution
+        if self.nproc == 1:
+            # Customize the progressbar
+            widgets = [f'[get_opacities] ', progressbar.Timer(), ' ', 
+                progressbar.GranularBar(' ⡀⡄⡆⡇⣇⣧⣷⣿')]
 
-        pb = progressbar.ProgressBar(maxval=self.a.size, widgets=widgets)
-        pb.start()
+            pb = progressbar.ProgressBar(maxval=self.a.size, widgets=widgets)
+            pb.start()
 
-        # Calculate the efficiencies for the range of grain sizes
-        for j, a_ in enumerate(self.a):
-            self.get_efficiencies(a_, nang, algorithm, verbose=False)
-            Qext_a.append(self.Qext) 
-            Qsca_a.append(self.Qsca) 
-            Qabs_a.append(self.Qabs) 
-            pb.update(j)
-        pb.finish()
+            # Calculate the efficiencies for the range of grain sizes
+            for j, a_ in enumerate(self.a):
+                self.get_efficiencies(a_, nang, algorithm, verbose=False)
+                self.Qext_a.append(self.Qext) 
+                self.Qsca_a.append(self.Qsca) 
+                self.Qabs_a.append(self.Qabs) 
+                pb.update(j)
+            pb.finish()
 
+        # Multiprocessing (Parallelized)
+        else:
+            # Calculate the efficiencies for the range of grain sizes
+            with multiprocessing.Pool(processes=self.nproc) as pool:
+                result = pool.starmap(
+                    self.get_efficiencies, 
+                    zip(
+                        self.a, 
+                        itertools.repeat(nang), 
+                        itertools.repeat(algorithm),
+                        itertools.repeat(None),
+                        itertools.repeat(False),
+                        range(self.a.size), 
+                    )
+                )
+                # Reorder from (a, Q, l) to (Q, a, l)
+                result = np.swapaxes(result, 1, 0)
+                self.Qext_a = result[0]
+                self.Qsca_a = result[1]
+                self.Qabs_a = result[2]
+    
         # Transpose from (a, l) to (l, a) to later integrate over l
-        Qext_a = np.transpose(Qext_a)
-        Qsca_a = np.transpose(Qsca_a)
-        Qabs_a = np.transpose(Qabs_a)
+        self.Qext_a = np.transpose(self.Qext_a)
+        self.Qsca_a = np.transpose(self.Qsca_a)
+        self.Qabs_a = np.transpose(self.Qabs_a)
 
         # Integral of (a^q * a^3) = [amax^(q+4) - amin^(q-4)]/(q-4)
         q4 = self.q + 4
@@ -394,19 +435,19 @@ class Dust():
         # Compute the integral per wavelength 
         for i, l_ in enumerate(self.l):
             self.kext[i] = np.pi / C * \
-                np.trapz(Qext_a[i] * self.a**2 * self.a**q, self.a)
+                np.trapz(self.Qext_a[i] * self.a**2 * self.a**q, self.a)
 
             self.ksca[i] = np.pi / C * \
-                np.trapz(Qsca_a[i] * self.a**2 * self.a**q, self.a)
+                np.trapz(self.Qsca_a[i] * self.a**2 * self.a**q, self.a)
 
             self.kabs[i] = np.pi / C * \
-                np.trapz(Qabs_a[i] * self.a**2 * self.a**q, self.a)
+                np.trapz(self.Qabs_a[i] * self.a**2 * self.a**q, self.a)
 
         return self.kext, self.ksca, self.kabs
 
     def write_opacity_file(self, name=None, scatmat=False):
         """ Write the dust opacities into a file ready for radmc3d """ 
-        
+
         # Parse the table filename 
         name = self.name if name is None else name
         outfile = f'dustkappa_{name.lower()}.inp'
@@ -522,16 +563,28 @@ if __name__ == "__main__":
 
     # Create Dust materials
     silicate = Dust(name='Silicate')
+#    grap_per = Dust(name='Graphite Perpendicular')
+#    grap_par = Dust(name='Graphite Parallel')
 
     # Load refractive indices n and k from files
     silicate.set_nk(path='silicate.nk', meters=True, data_start=2)
+#    grap_per.set_nk(path='graphite_perpend.nk', meters=True, data_start=2)
+#    grap_par.set_nk(path='graphite_parallel.nk', meters=True, data_start=2)
 
     # Set the mass fraction and bulk density of each component
     silicate.set_density(3.50, cgs=True)
+#    grap_per.set_density(2.25, cgs=True)
+#    grap_par.set_density(2.25, cgs=True)
+
+    # Bypass mixing and simply average the opacites of coexisting materials,  
+    # weighting them by their mass fraction. Make sure the fractions add up to 1
+#    mixture = (0.625 * silicate) + (0.250 * grap_per) + (0.125 * grap_par) 
+#    mixture = silicate + grap_per + grap_par 
 
     # Convert the refractive indices into dust opacities
-    kext, ksca, kabs = silicate.get_opacities(a=np.logspace(-1, 3, 100), nang=2)
+    kext, ksca, kabs = silicate.get_opacities(a=np.logspace(-1, 1, 10), nang=4)
 
+    silicate.plot_efficiencies()
     silicate.plot_opacities()
 
     # Write the opacity table of the mixed material including scattering matrix
