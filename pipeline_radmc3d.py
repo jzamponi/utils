@@ -7,7 +7,7 @@
 
     $ pipeline_radmc3d.py --sphfile snap_001.dat --ncells 100 --bbox 50
         --show-grid-2d --show-grid-3d --raytrace --lam 3000 --amax 10 
-        --show-rt --synobs --show-synobs
+        --polarization --show-rt --synobs --show-synobs
 
     For details, run:
     $ pipeline_radmc3d.py --help
@@ -15,7 +15,6 @@
 """
 
 import os
-import utils
 import argparse
 import requests
 import subprocess
@@ -25,6 +24,9 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 from glob import glob
+
+import utils
+from dustmixer import Dust
 
 
 class Pipeline:
@@ -36,12 +38,13 @@ class Pipeline:
         self.amax = str(int(amax))
         self.nphot = int(nphot)
         self.nthreads = int(nthreads)
+        self.polarization = polarization
         self.scatmode = 5 if polarization else 2
         self.inputstyle = 10 if polarization else 1
         self.wavelengths = np.logspace(-2, 8, 200)
         self.csubl = csubl
         self.nspec = 1 if self.csubl == 0 else 2
-        self.dcomp = ['sg', 'sg'] if self.csubl == 0 else ['sgo','sg']
+        self.dcomp = ['sg', 'sg'] if self.csubl == 0 else ['sg','sgo']
         self.sootline = sootline
         self.dgrowth = dgrowth
         self.rstar = 2e11
@@ -107,19 +110,54 @@ class Pipeline:
         # Visualize the VTK grid file using ParaView
         if render:
             grid.render()
+
+    def dust_opacity(self, amin, amax, na, q=-3.5, nang=3, 
+            show=False, savefig=None):
+        """
+            Call dustmixer to generate dust opacity tables
+        """
+        self.amin = amin
+        self.amax = amax
+        self.na = na
+        self.q = q 
+        self.nang = nang
+        self.a_dist = np.logspace(np.log10(amin), np.log10(amax), na)
+        
+        # Create Dust materials
+        silicate = Dust(name='Silicate')
+        grap_per = Dust(name='Graphite Perpendicular')
+        grap_par = Dust(name='Graphite Parallel')
+
+        # Load refractive indices n and k from file. Filenames can also be a url
+        silicate.set_nk(path='silicate.nk', meters=True, data_start=2)
+        grap_per.set_nk(path='graphite_perpend.nk', meters=True, data_start=2)
+        grap_par.set_nk(path='graphite_parallel.nk', meters=True, data_start=2)
+
+        # Set the mass fraction and bulk density of each component
+        silicate.set_density(3.50, cgs=True)
+        grap_per.set_density(2.25, cgs=True)
+        grap_par.set_density(2.25, cgs=True)
+
+        # Convert the refractive indices into dust opacities
+        silicate.get_opacities(a=self.a_dist, nang=self.nang)
+        grap_per.get_opacities(a=self.a_dist, nang=self.nang)
+        grap_par.get_opacities(a=self.a_dist, nang=self.nang)
+
+        # Sum the opacities weighted by their mass fractions
+        mixture = (silicate * 0.625) + (grap_per * 0.250) + (grap_par * 0.125)
+
+        # Save the mixture opacity to file
+        mixture.plot_opacities(show=show, savefig=savefig)
+
+        # Write the opacity table of the mixture including scattering matrix
+        mixture.write_opacity_file(
+            scatmat=self.polarization, name=f'sg_a{int(self.amax)}um')
     
     def radmc3d_banner(self):
         utils.print_(f'{"="*21}  <RADMC3D>  {"="*21}', bold=True)
 
-    @staticmethod
-    def download_file(url):
-        """ Perform an HTTP GET request to fetch files from internet """ 
-
-        filename = url.split('/')[-1]
-        download = Path(filename).write_bytes(requests.get(url).content)
-
-    def generate_input_files(self, inpfile=True, wavelength=True, stars=True, 
-            dustopac=True, dustkappa=True):
+    def generate_input_files(self, inpfile=False, wavelength=False, stars=False, 
+            dustopac=False, dustkappa=False):
         """ Generate the necessary input files for radmc3d """
         if inpfile:
             # Create a RADMC3D input file
@@ -157,16 +195,20 @@ class Pipeline:
                 f.write('---------\n')
                 f.write(f'{self.inputstyle}\n')
                 f.write('0\n')
-                f.write(f'{self.dcomp[0]}-a{self.amax}um\n')
+                if self.csubl > 0:
+                    f.write(f'{self.dcomp[1]}-a{self.amax}um-{int(self.csubl)}org\n')
+                else:
+                    f.write(f'{self.dcomp[0]}-a{self.amax}um\n')
+
                 if self.nspec > 1:
                     # Define a second species 
                     f.write('---------\n')
                     f.write(f'{self.inputstyle}\n')
                     f.write('0\n')
                     if self.dgrowth:
-                        f.write(f'{self.dcomp[1]}-a1000um\n')
+                        f.write(f'{self.dcomp[0]}-a1000um\n')
                     else:
-                        f.write(f'{self.dcomp[1]}-a{self.amax}um\n')
+                        f.write(f'{self.dcomp[0]}-a{self.amax}um\n')
                 f.write('---------\n')
 
         if dustkappa:
@@ -174,16 +216,19 @@ class Pipeline:
             table = 'https://raw.githubusercontent.com/jzamponi/utils/main/' +\
                 f'opacity_tables/dustkappa_{self.dcomp[0]}-a{self.amax}um.inp'
 
-            utils.print_(f'Downloading opacity table from: ')
-            utils.print_(f'{table}')
-            self.download_file(table)
+            utils.download_file(table)
+
             if self.csubl > 0:
                 # Download also the table for a second dust composition
                 table = table.replace(f'{self.dcomp[0]}', f'{self.dcomp[1]}')
+                if 'sgo' in table:
+                    table = table.replace('um.inp', f'um-{int(self.csubl)}org.inp')
+
                 if self.dgrowth:
                     # Download also the table for grown dust
                     table = table.replace(f'{self.amax}', '1000') 
-                self.download_file(table)
+
+                utils.download_file(table)
             
     @utils.elapsed_time
     def monte_carlo(self, nphot):
@@ -211,23 +256,30 @@ class Pipeline:
 
         print('')
         utils.print_("Ray-tracing the grid's density and temperature ...\n", 
-        bold=True)
+            bold=True)
 
         if lam is not None:
             self.lam = lam
 
         self.scatmode = 0 if noscat else 2
 
-        # Make sure all necessary radmc3d input files are available in the
-        # current directory. To avoid overwriting the existing ones set 
-        # them to false in the following function call
-        self.generate_input_files(
-            inpfile=True,
-            wavelength=True,
-            stars=True,
-            dustopac=True,
-            dustkappa=True
-        )
+        # Generate only the input files that are not available in the directory
+        if not os.path.exists('radmc3d.inp'):
+            self.generate_input_files(inpfile=True)
+
+        if not os.path.exists('wavelength_micron.inp'):
+            self.generate_input_files(wavelength=True)
+
+        if not os.path.exists('stars.inp'):
+            self.generate_input_files(stars=True)
+
+        if not os.path.exists('dustopac.inp'):
+            self.generate_input_files(dustopac=True)
+
+        if not os.path.exists(glob('dustkappa*')[0]):
+            self.generate_input_files(dustkappa=True)
+
+        # Now double-check all necessary radmc3d input files are available 
         assert os.path.exists('amr_grid.inp')
         assert os.path.exists('dust_density.inp')
         assert os.path.exists('dust_temperature.dat')
@@ -237,12 +289,12 @@ class Pipeline:
         assert os.path.exists('dustopac.inp')
         assert os.path.exists(glob('dustkappa*')[0])
          
-        # Rotate implicitly by 180
+        # Rotate explicitly by 180
         incl = 180 - int(incl)
 
         # Set the RADMC3D command
-        cmd = f'radmc3d image '
         #cmd = f'radmc3d-notherm image debug_set_thermemistot_to_zero '
+        cmd = f'radmc3d image '
         cmd += f'lambda {lam} ' if lam is not None else ' '
         cmd += f'incl {incl} ' if incl is not None else ' '
         cmd += f'npix {npix} ' if npix is not None else ' '
@@ -311,15 +363,11 @@ class Pipeline:
             url = 'https://raw.githubusercontent.com/jzamponi/utils/main/' + \
                 f'synthetic_observations/{lam}/{script}'
 
-            utils.print_(f'No CASA script found. Downloading from: ', bold=True)
-            utils.print_(f'{url}')
-
-            self.download_file(url)
+            utils.download_file(
+                url, f'No CASA script found. Downloading from: {url}')
 
             # Tailor the script
             subprocess.run(f"sed -i s/polaris/radmc3d/g {script}", shell=True) 
-            if lam == '3mm':
-                subprocess.run(f"sed -i '55,61d' {script}", shell=True)
             if not graphic:
                 subprocess.run(f"sed -i 's/both/file/g' {script}", shell=True)
             if not verbose:
@@ -683,6 +731,24 @@ if __name__ == "__main__":
     parser.add_argument('--render', action='store_true', default=False,
         help='Visualize the VTK file using ParaView')
 
+    parser.add_argument('--opacity', action='store_true', default=False,
+        help='Call dustmixer to generate a dust opacity table')
+
+    parser.add_argument('--amin', action='store', type=float, default=0.1,
+        help='Minimum value for the grain size distribution')
+
+    parser.add_argument('--amax', action='store', type=float, default=10,
+        help='Maximum value for the grain size distribution')
+
+    parser.add_argument('--na', action='store', type=int, default=100,
+        help='Number of size bins for the logarithmic grain size distribution')
+
+    parser.add_argument('--q', action='store', type=float, default=-3.5,
+        help='Slope of the grain size distribution in logspace')
+
+    parser.add_argument('--nang', action='store', type=int, default=3,
+        help='Number of scattering angles used to sample the dust efficiencies')
+
     parser.add_argument('-mc', '--monte-carlo', action='store_true', default=False,
         help='Call RADMC3D to raytrace the new grid and plot an image')
 
@@ -707,8 +773,8 @@ if __name__ == "__main__":
     parser.add_argument('--sizeau', action='store', type=int, default=100,
         help='Physical size of the image in AU')
 
-    parser.add_argument('--amax', action='store', type=int, default=10,
-        help='Maximum dust grain size used to find the opacity table')
+    parser.add_argument('--polarization', action='store_true', default=False,
+        help='Enable polarized RT and full scattering matrix opacity tables')
 
     parser.add_argument('--noscat', action='store_true', default=False,
         help='Turn off the addition of scattered flux to the thermal flux')
@@ -738,14 +804,17 @@ if __name__ == "__main__":
     # Initialize the pipeline
     pipeline = Pipeline(lam=cli.lam, amax=cli.amax, nphot=cli.nphot, 
         nthreads=cli.nthreads, csubl=cli.sublimation, sootline=cli.soot_line, 
-        dgrowth=cli.dust_growth
-        )
+        dgrowth=cli.dust_growth, polarization=cli.polarization)
 
     # Generate the input grid for RADMC3D
     if cli.grid:
         pipeline.create_grid(sphfile=cli.sphfile, ncells=cli.ncells, 
             bbox=cli.bbox, rout=cli.rout, show_2d=cli.show_grid_2d, 
             show_3d=cli.show_grid_3d, vtk=cli.vtk, render=cli.render)
+
+    # Generate the dust opacity tables
+    if cli.opacity:
+        pipeline.dust_opacity(cli.amin, cli.amax, cli.na, cli.q, cli.ang)
 
     # Run a thermal Monte-Carlo
     if cli.monte_carlo:
