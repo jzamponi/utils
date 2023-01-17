@@ -43,6 +43,7 @@ class Dust():
         self.vf = 0
         self.dens = 0
         self.mass = 0
+        self.mf_all = []
         self.Qext = None
         self.Qsca = None
         self.Qabs = None
@@ -53,36 +54,76 @@ class Dust():
     def __str__(self):
         print(f'{self.name}')
 
-    def __repr(self):
-        print(f'{self.name}')
+#    def __repr__(self):
+#        print(f'{self.name}')
 
     def __add__(self, other):
         """
             This 'magic' method allows dust opacities to be summed via:
             mixture = dust1 + dust2
+            Syntax is important. Arithmetic operations with Dust objects 
+            should ideally be grouped by parenthesis. 
         """
         if self.kext is None:
             raise ValueError('Dust opacities kext, ksca and kabs are not set')
 
-        self.kext = self.kext + other.kext
-        self.ksca = self.ksca + other.ksca
-        self.kabs = self.kabs + other.kabs
+        dust = Dust(self)
+        dust.l = self.l
+        dust.kext = self.kext + other.kext
+        dust.ksca = self.ksca + other.ksca
+        dust.kabs = self.kabs + other.kabs
+        dust.gsca = self.gsca + other.kabs
+        dust.zscat = self.zscat + other.zscat
+        dust.nang = self.nang
+        dust.angles = self.angles
+        dust.mf_all = self.mf_all
+        dust.name = ' + '.join([self.name, other.name])
 
-        return Dust(self)
+        return dust
 
-    def __mul__(self, mf):
+    def __mul__(self, mass_fraction):
         """
             This 'magic' method allows dust opacities to be rescaled as:
             dust = dust1 * 0.67
+            The order is important. The number must be on the right side. 
         """
+        return self.set_mass_fraction(mass_fraction) 
+
+    def set_mass_fraction(self, mass_fraction):
+        """ Set the mass fraction of the dust component. """
+
         if self.kext is None:
             raise ValueError('Dust opacities kext, ksca and kabs are not set')
+        
+        dust = Dust(self)
+        dust.name = self.name
+        dust.l = self.l
+        dust.kext = self.kext * mass_fraction
+        dust.ksca = self.ksca * mass_fraction
+        dust.kabs = self.kabs * mass_fraction
+        dust.gsca = self.gsca * mass_fraction
+        dust.zscat = self.zscat * mass_fraction
+        dust.nang = self.nang
+        dust.angles = self.angles
+        dust.mf = mass_fraction
+        dust.mf_all.append(mass_fraction)
 
-        self.kext = self.kext * mf
-        self.ksca = self.ksca * mf
-        self.kabs = self.kabs * mf
+        return dust
 
-        return Dust(self)
+    def check_mass_fractions(self):
+        if np.sum(self.mf_all) != 1:
+            raise ValueError(
+                f'Mass fractions should add up to 1. Values are {self.mf_all}') 
+        else:
+            utils.print('Mass fractions add up to 1. Values are {self.mf_all}')
+
+    def set_density(self, dens, cgs=True):
+        """ Set the bulk density of the dust component. """
+        self.dens = dens if cgs else dens * (u.kg/u.m**3).to(u.g/u.cm**3)
+    
+    def set_volume_fraction(self, volume_fraction):
+        """ Set the volume fraction of the dust component. """
+        self.vf = vf
 
     def set_nk(self, path, data_start=0, meters=False, cm=False):
         """ Set n and k values by reading them from file. 
@@ -115,18 +156,6 @@ class Dust():
         else:
             self.l = self.datafile[column_name['l']] * u.micron.to(u.cm)
                 
-    def set_density(self, dens, cgs=True):
-        """ Set the bulk density of the dust component. """
-        self.dens = dens if cgs else dens * (u.kg/u.m**3).to(u.g/u.cm**3)
-    
-    def set_mass_fraction(self, mf):
-        """ Set the mass fraction of the dust component. """
-        self.mf = mf
-
-    def set_volume_fraction(self, vf):
-        """ Set the volume fraction of the dust component. """
-        self.vf = vf
-
     def mix(self, other, nlam=200):
         """
             Mix two dust components using the bruggeman rule. 
@@ -134,6 +163,8 @@ class Dust():
             It initially creates a common wavelength grid by interpolating
             the entered n and k values within the min and max wavelenth.
             TO DO: change other for *args so it can handle multiple materials
+
+            *** This feature is currently incomplete. ***
         """
 
         # Creates a new Dust instance to contain the mixed optical constants
@@ -341,7 +372,7 @@ class Dust():
         return self.Qext, self.Qsca, self.Qabs, self.gsca
 
         
-    @utils.elapsed_time
+#    @utils.elapsed_time
     def get_opacities(self, a=np.logspace(-1, 2, 100), q=-3.5, 
             algorithm='bhmie', nang=2, nproc=1):
         """ 
@@ -563,30 +594,31 @@ if __name__ == "__main__":
 
     # Create Dust materials
     silicate = Dust(name='Silicate')
-#    grap_per = Dust(name='Graphite Perpendicular')
-#    grap_par = Dust(name='Graphite Parallel')
+    grap_per = Dust(name='Graphite Perpendicular')
+    grap_par = Dust(name='Graphite Parallel')
 
     # Load refractive indices n and k from files
     silicate.set_nk(path='silicate.nk', meters=True, data_start=2)
-#    grap_per.set_nk(path='graphite_perpend.nk', meters=True, data_start=2)
-#    grap_par.set_nk(path='graphite_parallel.nk', meters=True, data_start=2)
+    grap_per.set_nk(path='graphite_perpend.nk', meters=True, data_start=2)
+    grap_par.set_nk(path='graphite_parallel.nk', meters=True, data_start=2)
 
     # Set the mass fraction and bulk density of each component
     silicate.set_density(3.50, cgs=True)
-#    grap_per.set_density(2.25, cgs=True)
-#    grap_par.set_density(2.25, cgs=True)
-
-    # Bypass mixing and simply average the opacites of coexisting materials,  
-    # weighting them by their mass fraction. Make sure the fractions add up to 1
-#    mixture = (0.625 * silicate) + (0.250 * grap_per) + (0.125 * grap_par) 
-#    mixture = silicate + grap_per + grap_par 
+    grap_per.set_density(2.25, cgs=True)
+    grap_par.set_density(2.25, cgs=True)
 
     # Convert the refractive indices into dust opacities
-    kext, ksca, kabs = silicate.get_opacities(a=np.logspace(-1, 1, 10), nang=4)
+    silicate.get_opacities(a=np.logspace(-1, 1, 2), nang=5)
+    grap_per.get_opacities(a=np.logspace(-1, 1, 2), nang=5)
+    grap_par.get_opacities(a=np.logspace(-1, 1, 2), nang=5)
 
-    silicate.plot_efficiencies()
-    silicate.plot_opacities()
+    mixture = (silicate * 0.625) + (grap_per * 0.250) + (grap_par * 0.125)
+
+    silicate.plot_opacities(show=False, savefig='silicate_opacity.png')
+    grap_per.plot_opacities(show=False, savefig='grap_per_opacity.png')
+    grap_par.plot_opacities(show=False, savefig='grap_par_opacity.png')
+    mixture.plot_opacities(show=False, savefig='mixture_opacity.png')
 
     # Write the opacity table of the mixed material including scattering matrix
-    silicate.write_opacity_file(scatmat=True)
+    mixture.write_opacity_file(scatmat=True, name='sg_a1000um')
 
