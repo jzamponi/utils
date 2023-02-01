@@ -48,9 +48,12 @@ class Observation:
         elif lam == 'alpha':
             self.band = ''
             self.filename = 'sourceB_spectral_index_band3-6.fits'
+        else:
+            raise ValueError(f'No observation available for lam = {lam}')
 
         self.data, self.header = fits.getdata(
-            home / f"phd/observations/{self.source}/{self.band}/{self.filename}", header=True
+            home/"phd/observations"/self.source/self.band/self.filename, 
+            header=True
         )
         
     def rescale(self, factor):
@@ -168,15 +171,37 @@ def elapsed_time(caller):
     return wrapper
 
 
+def download_file(url, msg=None, verbose=True, *args, **kwargs):
+    """ Perform an HTTP GET request to fetch files from internet """ 
+
+    if verbose:
+        print_(f'Downloading file from {url}' if msg is None else msg, 
+            *args, **kwargs)
+    
+    import requests
+
+    # Strip the filename from the base url
+    filename = url.split('/')[-1]
+
+    # Perform an HTTP GET request
+    req = requests.get(url)
+
+    # Raise the HTTP Error if existent
+    req.raise_for_status()
+
+    # Download the file
+    download = Path(filename).write_bytes(req.content)
+
+
 def ring(soundfile=None):
-    """ Play a sound from system. Useful to notify when another function finishes."""
+    """ Play a sound from system. Useful to notify when a function finishes."""
     if not isinstance(soundfile, (str,PosixPath)):
         soundfile = "/usr/share/sounds/freedesktop/stereo/service-login.oga"
 
     os.system(f"paplay {soundfile} >/dev/null 2>&1")
 
 
-def plot_checkout(fig, show, savefig, path=""):
+def plot_checkout(fig, show, savefig, path="", block=True):
     """
     Final step in every plotting routine:
         - Check if the figure should be showed.
@@ -194,7 +219,7 @@ def plot_checkout(fig, show, savefig, path=""):
 
     # Show the figure if required
     if show:
-        plt.show()
+        plt.show(block=block)
 
     return fig
 
@@ -880,7 +905,8 @@ def convert_opacity_file(
         plt.tight_layout()
     
 
-def radmc3d_casafits(fitsfile='radmc3d_I.fits', radmcimage='image.out'):
+def radmc3d_casafits(fitsfile='radmc3d_I.fits', radmcimage='image.out',
+        stokes='I'):
     """ Read in an image.out file created by RADMC3D and generate a
         FITS file with a CASA-compatible header, ready for a 
         synthetic observation.
@@ -894,7 +920,7 @@ def radmc3d_casafits(fitsfile='radmc3d_I.fits', radmcimage='image.out'):
         dpc=141, 
         coord='16h32m22.63s -24d28m31.8s', 
         casa=False,
-        stokes='I',
+        stokes=stokes,
     )
 
 
@@ -1231,14 +1257,18 @@ def edit_header(filename, key, value, verbose=True):
 
     if value_ is None:
         print_(f"Adding keyword {key} = {value}", verbose=verbose)
+        header[key] = value
+
+    elif value == 'del' and value_ is not None:
+        print_(f'Deleting from header: {key} = {value_}', verbose=verbose)
+        del header[key]
 
     else:
         print_(f"Keyword {key} already exists.", verbose=verbose)
         print_(f"Updating from {value_} to {value}.", verbose=verbose)
+        header[key] = value
 
-    header[key] = value
-
-    write_fits(filename, data=data, header=header, overwrite=True, verbose=True)
+    write_fits(filename, data=data, header=header, overwrite=True, verbose=verbose)
 
 
 @elapsed_time
@@ -1263,6 +1293,7 @@ def plot_map(
     show=True, 
     savefig=None, 
     checkout=True, 
+    block=True, 
     *args,
     **kwargs,
 ):
@@ -1323,7 +1354,9 @@ def plot_map(
             'Impossible to convert into T_b.', verbose, bold=True)
 
     # Initialize the figure
-    fig = FITSFigure(str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
+    fig = FITSFigure(
+        str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
+    fig.set_auto_refresh(True)
     fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin, stretch=stretch)
     
     # Add contours if requested
@@ -1417,7 +1450,7 @@ def plot_map(
     # Delete the temporary file created to get rid of extra dimensions
     if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
 
-    return plot_checkout(fig, show, savefig) if checkout else fig
+    return plot_checkout(fig, show, savefig, block=block) if checkout else fig
 
 
 def pol_angle(stokes_q, stokes_u):
@@ -1464,7 +1497,7 @@ def pol_angle(stokes_q, stokes_u):
 
 @elapsed_time
 def polarization_map(
-    source = 'polaris', 
+    source = 'radmc3d', 
     render="intensity",
     polarization="linear", 
     stokes_I = None, 
@@ -1487,7 +1520,7 @@ def polarization_map(
     rms_I=None, 
     rms_Q=None, 
     bright_temp=False, 
-    rescale=None, 
+    rescale=1, 
     savefig=None,
     show=True,
     verbose=True,
@@ -1508,7 +1541,7 @@ def polarization_map(
     pwd = os.getcwd()
 
     # Read the Stokes components from a data cube
-    if source in ['alma', 'vla']:
+    if source in ['alma', 'vla', 'radmc3d']:
         hdr = fits.getheader(f'{source}_I.fits')
 
         I = fits.getdata(f'{source}_I.fits').squeeze()
@@ -1578,13 +1611,16 @@ def polarization_map(
                 I_ss = fits.getdata(add_scattered)
             except OSError:
                 raise FileNotFoundError(
-                    f"File with thermal flux does not exist.\n" + "File: {add_thermal}"
+                    f"File with thermal flux does not exist.\n" + \
+                    "File: {add_thermal}"
                 )
 
-        # If add_thermal is True, assume the path to scattered flux file is similarly structured 
+        # If add_thermal is True, assume the path to scattered flux file is 
+        # similarly structured 
         elif add_scattered:
             if "scattered emission" in hdr.get("ETYPE", ""):
-                print_("You are adding scattered flux to the scattered flux. Not gonna happen.", bold=True)
+                print_("You are adding scattered flux to the scattered flux. "+\
+                    "Not gonna happen.", bold=True)
                 I_ss = np.zeros(I.shape)
 
             elif "thermal emission" in hdr.get("ETYPE", ""):
@@ -1634,17 +1670,7 @@ def polarization_map(
         V = np.zeros(U.shape)
         tau = np.zeros(I.shape)
 
-
-    # Compute the polarization angle 
-#    pangle = np.zeros(Q.shape)
-#    x = np.zeros(Q.shape)
-#    y = np.zeros(Q.shape)
-#    for qi, ui in zip(range(Q.shape[0]), range(U.shape[0])):
-#        for qj, uj in zip(range(Q.shape[1]), range(U.shape[1])):
-#            pangle[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[0]
-#            x[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[1]
-#            y[qi,qj] = pol_angle(Q[qi, qj], U[ui, uj])[2]
-
+    # Compute the polarizatoin angle
     pangle = 0.5 * np.arctan2(U, Q)
     pangle = pangle * u.rad.to(u.deg)
 	
@@ -1668,8 +1694,9 @@ def polarization_map(
         rms_Q = 0
         min_Q = np.nanmin(Q)
         
-    print_(f'rms_I: {rms_I}', True, bold=True)
-    print_(f'rms_Q: {rms_Q}', True, bold=True)
+    if source in ['alma', 'vla']:
+        print_(f'rms_I: {rms_I}', verbose, bold=True)
+        print_(f'rms_Q: {rms_Q}', verbose, bold=True)
 
     # Compute the polarized intensity
     # Apply debias correction (Viallancourt et al. 2006)
@@ -1711,11 +1738,11 @@ def polarization_map(
         "I": I, 
         "Q": Q, 
         "U": U, 
-        "V": V, 
-        "tau": tau, 
+        #"V": V, 
+        #"tau": tau, 
         "pi": pi, 
-        "pfrac": pfrac, 
-        "pangle": pangle
+        "pf": pfrac, 
+        "pa": pangle
     }
     for q, d in quantities.items():
         write_fits(f'{source}_{q}.fits', data=d, header=hdr, overwrite=True)
@@ -1760,13 +1787,13 @@ def polarization_map(
         rescale = 1e6 if rescale is None and source == 'polaris' else rescale
 
     elif render.lower() in ["pf", "pfrac", "polarization fraction"]:
-        figname = f"{source}_pfrac.fits"
+        figname = f"{source}_pf.fits"
         cblabel = "Polarization fraction"
         rescale = 1 if rescale is None else rescale
         bright_temp = False
 
     elif render.lower() in ["pa", "pangle", "polarization angle"]:
-        figname = f"{source}_pangle.fits"
+        figname = f"{source}_pa.fits"
         cblabel = "Polarization angle (deg)"
         rescale = 1 if rescale is None else rescale
         bright_temp = False
@@ -1782,6 +1809,8 @@ def polarization_map(
         cblabel=cblabel, 
         bright_temp=bright_temp, 
         scalebar=scalebar, 
+        verbose=verbose, 
+        block=False,
         *args,
         **kwargs,
     )
@@ -1807,8 +1836,8 @@ def polarization_map(
 
     # Add polarization vectors
     fig.show_vectors(
-        f"{source}_pfrac.fits",
-        f"{source}_pangle.fits",
+        f"{source}_pf.fits",
+        f"{source}_pa.fits",
         step=step,
         scale=scale,
         rotate=rotate,
@@ -1817,6 +1846,7 @@ def polarization_map(
         units='degrees', 
         layer="pol_vectors",
     )
+    fig.refresh()
 
     # Add B-field vectors
     # TO DO: ADD A LABEL TO INDICATE WHAT VECTORS ARE WHAT
@@ -1846,9 +1876,6 @@ def polarization_map(
             levels=[1],
             colors='green',
         )
-
-    if show:
-        plt.show()
 
     return plot_checkout(fig, show, savefig)
 
@@ -2084,6 +2111,9 @@ def horizontal_cut(
     # Set the path prefix as a Path object, if provided
     prefix = Path(prefix)
 
+    # Avoid opening a figure if show=False, in case pylab is enabled
+    plt.rcParams['interactive'] = show
+
     # Create a figure object
     fig = plt.figure()
 
@@ -2106,8 +2136,9 @@ def horizontal_cut(
         if scale_obs is not None and scale_obs > 0:
             obs.rescale(scale_obs)
 
-        # Generate a cut of brightness along the peak, as a function of angular offset
-        obs.offset, obs.cut = angular_offset(obs.data, obs.header, cut_along=cut_along)
+        # Get a cut of brightness along the peak as a function of angular offset
+        obs.offset, obs.cut = angular_offset(
+            obs.data, obs.header, cut_along=cut_along)
         
         # Plot the observed profile
         label = f"{obs.source} (x{scale_obs:.1f})" if scale_obs else obs.source
@@ -2775,32 +2806,6 @@ def dust_temp_in_steady_state(regime='thick', alpha=0.02, r=1, between=[0, 1e3])
 
     # Call the root finding function
     return fsolve(func, between)
-
-
-@elapsed_time
-def pipeline(amax=np.arange(300, 1000, 100), lam=[1.3, 3, 7, 18], verbose=True):
-
-    pwd = f'/home/jz/phd/rhd_disk/results/snap541/dust_emission/temp_eos/sg'
-
-    for a in amax:
-        for l in lam:
-            # Set and enter to the path for the current setup 
-            path = f'{pwd}/amax{a}um/{l}mm/0deg/dust_scat/data/'
-            print_(f'\n{path}', verbose=verbose, bold=True)
-            os.chdir(path)
-            plt.rcParams['interactive'] = False
-
-            # Create a single 2D map with Stokes I as the input for the synthetic obs. 
-            fig = polarization_map(show=False)
-            fig.close()
-
-            # Remove the empty maps created by polarization_map()
-            [os.remove(f'{path}/polaris_{i}.fits') for i in ['Q','U','V','pangle','pfrac','pi']]
-            # Run the synthetic observation
-            if l in [1.3, 3]:
-                os.system(f"casa --nologger -c alma_simulation.py")
-            else:
-                os.system(f"casa --nologger -c vla_simulation.py")
 
 
 @elapsed_time
