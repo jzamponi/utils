@@ -15,7 +15,7 @@
 
     Requisites:
         Software:   python3, CASA, RADMC3D, 
-                    Mayavi (optional), ParaView (optional), DS9 (optional)
+                    Mayavi (optional), ParaView (optional)
 
         Modules:    python3-aplpy, python3-scipy, python3-numpy, python3-h5py
                     python3-matplotlib, python3-astropy, python3-mayavi,
@@ -42,7 +42,7 @@ class Pipeline:
     
     def __init__(self, lam=1300, amax=10, nphot=1e5, nthreads=1, sootline=300,
             lmin=0.1, lmax=1e6, nlam=200, star=None, dgrowth=False, csubl=0, 
-            polarization=False, alignment=False, overwrite=False, verbose=True):
+            material='sg', polarization=False, alignment=False, overwrite=False, verbose=True):
         self.steps = []
         self.lam = int(lam)
         self.lmin = lmin
@@ -50,6 +50,7 @@ class Pipeline:
         self.nlam = nlam
         self.lgrid = np.logspace(np.log10(lmin), np.log10(lmax), nlam)
         self.amax = str(int(amax))
+        self.material = material
         self.nphot = int(nphot)
         self.nthreads = int(nthreads)
         self.polarization = polarization
@@ -68,7 +69,7 @@ class Pipeline:
     
         self.csubl = csubl
         self.nspec = 1 if self.csubl == 0 else 2
-        self.dcomp = ['sg', 'sg'] if self.csubl == 0 else ['sg','sgo']
+        self.dcomp = [material]*2 if self.csubl == 0 else [material, material+'o']
         self.sootline = sootline
         self.dgrowth = dgrowth
         if star is None:
@@ -151,9 +152,9 @@ class Pipeline:
         if render:
             self.grid.render()
 
-    #@utils.elapsed_time
-    def dust_opacity(self, amin, amax, na, q=-3.5, nang=3, material='sg', 
-            show=False, savefig=None):
+    @utils.elapsed_time
+    def dust_opacity(self, amin, amax, na, q=-3.5, nang=3, material=None, 
+            show_nk=False, show_opac=False, savefig=None):
         """
             Call dustmixer to generate dust opacity tables. 
             New dust materials can be manually defined here if desired.
@@ -162,8 +163,7 @@ class Pipeline:
         print('')
         utils.print_("Calculating dust opacities ...\n", bold=True)
 
-        self.material = material
-        self.dcomp = [material, material]
+        if material is not None: self.material = material
         self.amin = amin
         self.amax = amax
         self.na = na
@@ -177,81 +177,70 @@ class Pipeline:
         # use 1 until the parallelization of polarization is properly implemented
         nth = 1
         
-        if material == 's':
-            mixture = dustmixer.Dust(name='Silicate')
-            mixture.set_nk(path='silicate.nk', meters=True, skip=2)
-            mixture.set_density(3.50, cgs=True)
-            mixture.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
-
-        elif material == 'p':
-            mixture = dustmixer.Dust(name='Pyroxene')
-            mixture.set_nk(path='pyrmg70.lnk')
-            mixture.set_density(3.01, cgs=True)
-            mixture.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
+        if self.material == 's':
+            mix = dustmixer.Dust(name='Silicate')
+            mix.set_nk('astrosil-Draine2003.lnk', skip=1, get_density=True)
+            mix.set_lgrid(self.lmin, self.lmax, self.nlam)
+            mix.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
         
-        elif material == 'o':
-            mixture = dustmixer.Dust(name='Organics')
-            mixture.set_nk(path='organics.nk')
-            mixture.set_density(1.50, cgs=True)
-            mixture.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
+        elif self.material == 'g':
+            mix = dustmixer.Dust(name='Graphite')
+            mix.set_nk('c-gra-Draine2003.lnk', skip=1, get_density=True)
+            mix.set_lgrid(self.lmin, self.lmax, self.nlam)
+            mix.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
+
+        elif self.material == 'p':
+            mix = dustmixer.Dust(name='Pyroxene')
+            mix.set_nk('pyrmg70.lnk', get_density=False)
+            mix.set_density(3.01, cgs=True)
+            mix.set_lgrid(self.lmin, self.lmax, self.nlam)
+            mix.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
         
-        elif material == 'g':
-            grap_per = dustmixer.Dust(name='Graphite Perpendicular')
-            grap_par = dustmixer.Dust(name='Graphite Parallel')
-            grap_per.set_nk(path='graphite_perpend.nk', meters=True, skip=2)
-            grap_par.set_nk(path='graphite_parallel.nk', meters=True, skip=2)
-            grap_per.set_density(2.25, cgs=True)
-            grap_par.set_density(2.25, cgs=True)
-            grap_per.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
-            grap_par.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
-            mixture = grap_per * 0.67 + grap_par * 0.33
+        elif self.material == 'o':
+            mix = dustmixer.Dust(name='Organics')
+            mix.set_nk('organics.nk', get_density=False)
+            mix.set_density(1.50, cgs=True)
+            mix.set_lgrid(self.lmin, self.lmax, self.nlam)
+            mix.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
         
-        elif material == 'sg':
-            # Create Dust materials
-            silicate = dustmixer.Dust(name='Silicate')
-            grap_per = dustmixer.Dust(name='Graphite Perpendicular')
-            grap_par = dustmixer.Dust(name='Graphite Parallel')
-
-            # Load refractive indices from file. Filenames can also be a url
-            silicate.set_nk(path='silicate.nk', meters=True, skip=2)
-            grap_per.set_nk(path='graphite_perpend.nk', meters=True, skip=2)
-            grap_par.set_nk(path='graphite_parallel.nk', meters=True, skip=2)
-
-            # Set the mass fraction and bulk density of each component
-            silicate.set_density(3.50, cgs=True)
-            grap_per.set_density(2.25, cgs=True)
-            grap_par.set_density(2.25, cgs=True)
-
-            # Convert the refractive indices into dust opacities
-            silicate.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
-            grap_per.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
-            grap_par.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
+        elif self.material == 'sg':
+            sil = dustmixer.Dust(name='Silicate')
+            gra = dustmixer.Dust(name='Graphite')
+            sil.set_nk('astrosil-Draine2003.lnk', skip=1, get_density=True)
+            gra.set_nk('c-gra-Draine2003.lnk', skip=1, get_density=True)
+            sil.set_lgrid(self.lmin, self.lmax, self.nlam)
+            gra.set_lgrid(self.lmin, self.lmax, self.nlam)
+            sil.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
+            gra.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
 
             # Sum the opacities weighted by their mass fractions
-            mixture = silicate * 0.625 + grap_per * 0.250 + grap_par * 0.125
+            mix = sil * 0.625 + gra * 0.375
 
         else:
             try:
-                self.material = self.material.split('/')[-1].split('.')[0].lower()
-                mixture = dustmixer.Dust()
-                mixture.set_nk(path=material, skip=1, cm=True)
-                mixture.set_density(3.01, cgs=True)
-                mixture.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
+                mix = dustmixer.Dust(self.material.split('/')[-1].split('.')[0])
+                mix.set_nk(path=self.material, skip=1, get_density=True)
+                mix.set_lgrid(self.lmin, self.lmax, self.nlam)
+                mix.get_opacities(a=self.a_dist, nang=self.nang, nproc=nth)
+                self.material = mix.name
+
             except Exception as e:
                 utils.print_(e, red=True)
                 raise ValueError(f'Material = {material} not found.')
 
-        # Plot and/or save the mixture opacity to file
-        if show or savefig is not None:
-            mixture.plot_opacities(show=show, savefig=savefig)
+        if show_nk or savefig is not None:
+            mix.plot_nk(show=show_nk, savefig=savefig)
+
+        if show_opac or savefig is not None:
+            mix.plot_opacities(show=show_opac, savefig=savefig)
 
         # Write the opacity table
-        mixture.write_opacity_file(scatmat=self.polarization, 
+        mix.write_opacity_file(scatmat=self.polarization, 
             name=f'{self.material}-a{int(self.amax)}um')
 
         # Write the alignment efficiencies
         if self.alignment:
-            mixture.write_align_factor(f'{self.material}-a{int(self.amax)}um')
+            mix.write_align_factor(f'{self.material}-a{int(self.amax)}um')
 
         # Register the pipeline step 
         self.steps.append('dustmixer')
@@ -353,7 +342,17 @@ class Pipeline:
                 f'--vector-field to --grid to create the alignment field ' +\
                 f'from the input model.{utils.color.none}')
 
+    def file_exists(self, filename):
+        """ Raise an error if a file doesnt exist. Supports linux wildcards. """
+
+        msg = f'{utils.color.red}{filename} not found.{utils.color.none}'
+        if '*' in filename:
+            if len(glob(filename)) == 0:
+                raise FileNotFoundError(msg)
             
+        elif not os.path.exists(filename): 
+            raise FileNotFoundError(msg)
+
     @utils.elapsed_time
     def monte_carlo(self, nphot, radmc3d_cmds=''):
         """ 
@@ -371,7 +370,7 @@ class Pipeline:
         # Register the pipeline step 
         self.steps.append('monte_carlo')
 
-    #@utils.elapsed_time
+    @utils.elapsed_time
     def raytrace(self, incl, npix, sizeau, lam=None, show=True, noscat=False, 
             fitsfile='radmc3d_I.fits', radmc3d_cmds=''):
         """ 
@@ -406,8 +405,9 @@ class Pipeline:
         # If opacites were calculated within the pipeline, don't overwrite them
         if 'dustmixer' not in self.steps:
             # If not manually provided, download it from the repo
-            if len(glob('dustkap*')) == 0 or self.overwrite:
-                self.generate_input_files(dustkappa=True)
+            if not self.polarization:
+                if len(glob('dustkappa*')) == 0 or self.overwrite:
+                    self.generate_input_files(dustkappa=True)
 
         # If align factors were calculated within the pipeline, don't overwrite
         if self.alignment:
@@ -420,19 +420,20 @@ class Pipeline:
                 self.generate_input_files(grainalign=True)
 
         # Now double check that all necessary input files are available 
-        assert os.path.exists('amr_grid.inp')
-        assert os.path.exists('dust_density.inp')
-        assert os.path.exists('dust_temperature.dat')
-        assert os.path.exists('radmc3d.inp')
-        assert os.path.exists('wavelength_micron.inp')
-        assert os.path.exists('stars.inp')
-        assert os.path.exists('dustopac.inp')
-        assert len(glob('dustkap*')) > 0
+        self.file_exists('amr_grid.inp')
+        self.file_exists('dust_density.inp')
+        self.file_exists('dust_temperature.dat')
+        self.file_exists('radmc3d.inp')
+        self.file_exists('wavelength_micron.inp')
+        self.file_exists('stars.inp')
+        self.file_exists('dustopac.inp')
+        self.file_exists('dustkapscat*' if self.polarization else 'dustkappa*')
         if self.alignment: 
-            assert len(glob('dustkapalignfact*')) > 0
-            assert os.path.exists('grainalign_dir.inp')
-         
-        # Explicitly rotate by 180
+            self.file_exists('dustkapalignfact*')
+            self.file_exists('grainalign_dir.inp')
+ 
+        # Explicitly the model rotate by 180.
+        # Only for the current model. This line should be later removed.
         incl = 180 - int(incl)
 
         # Set the RADMC3D command by concatenating options
@@ -449,7 +450,7 @@ class Pipeline:
         self.radmc3d_banner()
 
         try:
-            os.system(f'{cmd} | tee radmc3d.out')
+            os.system(f'{cmd} 2>&1 | tee radmc3d.out')
         except KeyboardInterrupt:
             raise Exception('Received SIGKILL. Execution halted by user.')
 
@@ -458,9 +459,9 @@ class Pipeline:
         # Read radmc3d.out and stop the pipeline if RADMC3D finished in error
         with open ('radmc3d.out', 'r') as out:
             for line in out.readlines():
-                if 'ERROR' in line:
+                if 'error' in line.lower() or 'stop' in line.lower():
                     raise Exception(
-                        f'{utils.color.red}[RADMC3D]{line}{utils.color.none}')
+                        f'{utils.color.red}[RADMC3D] {line}{utils.color.none}')
     
         # Generate a FITS file from the image.out
         if os.path.exists(fitsfile): os.remove(fitsfile)
@@ -500,7 +501,6 @@ class Pipeline:
                     rotate=0, 
                     step=15, 
                     scale=10, 
-                    scalebar=20*u.au, 
                     min_pfrac=0, 
                     const_pfrac=True, 
                     vector_color='white',
@@ -508,7 +508,11 @@ class Pipeline:
                     verbose=False,
                 )
             else:
-                fig = utils.plot_map('radmc3d_I.fits', bright_temp=False)
+                fig = utils.plot_map(
+                    filename='radmc3d_I.fits', 
+                    bright_temp=False,
+                    verbose=False,
+                )
 
         # Register the pipeline step 
         self.steps.append('raytrace')
@@ -570,11 +574,27 @@ class Pipeline:
 
         # Show the new synthetic image
         if show:
-            try: 
-                subprocess.run(f'ds9 radmc3d_I.fits {obs}_I.fits'.split())
-            except FileNotFoundError as e:
-                utils.print_(f'I tried to plot the synthetic image ' +\
-                    f"{obs}_I.fits but I think it's not installed.", bold=True)
+            utils.print_(f'Plotting the new synthetic image')
+
+            if self.polarization:
+                fig = utils.polarization_map(
+                    source=obs,
+                    render='I', 
+                    rotate=0, 
+                    step=15, 
+                    scale=10, 
+                    min_pfrac=0, 
+                    const_pfrac=True, 
+                    vector_color='white',
+                    vector_width=1, 
+                    verbose=False,
+                )
+            else:
+                fig = utils.plot_map(
+                    filename=f'{obs}_I.fits', 
+                    bright_temp=False,
+                    verbose=False,
+                )
 
         # Clean-up and remove unnecessary files created by CASA
         if cleanup:
@@ -912,12 +932,16 @@ class CartesianGrid(Pipeline):
         if isinstance(state, str):
             subprocess.run(f'paraview --state {state} 2>/dev/null'.split())
         else:
-            if dust_density:
-                subprocess.run(
+            try:
+                if dust_density:
+                    subprocess.run(
                     f'paraview model_dust_density.vtk 2>/dev/null'.split())
-            elif dust_temperature:
-                subprocess.run(
+                elif dust_temperature:
+                    subprocess.run(
                     f'paraview model_dust_temperature.vtk 2>/dev/null'.split())
+            except Exception as e:
+                utils.print_('Unable to render using ParaView.',  bold=True)
+                utils.print_(e, bold=True)
 
     def write_vector_field(self, morphology):
         """ Create a vector field for dust alignment """
@@ -1019,11 +1043,11 @@ if __name__ == "__main__":
     parser.add_argument('--render', action='store_true', default=False,
         help='Visualize the VTK file using ParaView')
 
-    parser.add_argument('--opacity', action='store_true', default=False,
+    parser.add_argument('-op', '--opacity', action='store_true', default=False,
         help='Call dustmixer to generate a dust opacity table')
 
     parser.add_argument('--material', action='store', default='sg',
-        help='Composition of the dust. The string must be previously defined.')
+        help='Dust optical constants. Can be a predefined key, a path or a url')
 
     parser.add_argument('--amin', action='store', type=float, default=0.1,
         help='Minimum value for the grain size distribution')
@@ -1040,10 +1064,16 @@ if __name__ == "__main__":
     parser.add_argument('--nang', action='store', type=int, default=3,
         help='Number of scattering angles used to sample the dust efficiencies')
 
+    parser.add_argument('--show-opacity', action='store_true', default=False,
+        help='Plot the resulting dust opacities.')
+
+    parser.add_argument('--show-nk', action='store_true', default=False,
+        help='Plot the input dust optical constants.')
+
     parser.add_argument('-mc', '--monte-carlo', action='store_true', default=False,
         help='Call RADMC3D to raytrace the new grid and plot an image')
 
-    parser.add_argument('--nphot', action='store', type=float, default=1e7,
+    parser.add_argument('--nphot', action='store', type=float, default=1e5,
         help='Set the number of photons for scattering and thermal Monte Carlo')
 
     parser.add_argument('--nthreads', action='store', default=1, 
@@ -1116,38 +1146,41 @@ if __name__ == "__main__":
     # Store the command-line given arguments
     cli = parser.parse_args()
 
-    # Initialize the pipeline
-    pipeline = Pipeline(lam=cli.lam, amax=cli.amax, nphot=cli.nphot, 
-        lmin=cli.lmin, lmax=cli.lmax, nlam=cli.nlam, nthreads=cli.nthreads, 
-        csubl=cli.sublimation, sootline=cli.soot_line, dgrowth=cli.dust_growth,
-        polarization=cli.polarization, alignment=cli.alignment, star=cli.star, 
-        overwrite=cli.overwrite, verbose=not cli.quiet)
+    @utils.elapsed_time
+    def pipeline():
+        # Initialize the pipeline
+        pipeline = Pipeline(lam=cli.lam, amax=cli.amax, nphot=cli.nphot, 
+            lmin=cli.lmin, lmax=cli.lmax, nlam=cli.nlam, nthreads=cli.nthreads, 
+            csubl=cli.sublimation, sootline=cli.soot_line, dgrowth=cli.dust_growth,
+            polarization=cli.polarization, alignment=cli.alignment, star=cli.star, 
+            material=cli.material, overwrite=cli.overwrite, verbose=not cli.quiet)
 
-    # Generate the input grid for RADMC3D
-    if cli.grid:
-        pipeline.create_grid(sphfile=cli.sphfile, source=cli.source,  
-            ncells=cli.ncells, bbox=cli.bbox, rout=cli.rout, render=cli.render,
-            vtk=cli.vtk, show_2d=cli.show_grid_2d, show_3d=cli.show_grid_3d,
-            vector_field=cli.vector_field)
+        # Generate the input grid for RADMC3D
+        if cli.grid:
+            pipeline.create_grid(sphfile=cli.sphfile, source=cli.source,  
+                ncells=cli.ncells, bbox=cli.bbox, rout=cli.rout, 
+                render=cli.render, vtk=cli.vtk, show_2d=cli.show_grid_2d, 
+                show_3d=cli.show_grid_3d, vector_field=cli.vector_field)
 
-    # Generate the dust opacity tables
-    if cli.opacity:
-        pipeline.dust_opacity(cli.amin, cli.amax, cli.na, cli.q, cli.nang, 
-            material=cli.material)
+        # Generate the dust opacity tables
+        if cli.opacity:
+            pipeline.dust_opacity(cli.amin, cli.amax, cli.na, cli.q, cli.nang,
+                show_nk=cli.show_nk, show_opac=cli.show_opacity)
 
-    # Run a thermal Monte-Carlo
-    if cli.monte_carlo:
-        pipeline.monte_carlo(nphot=cli.nphot, radmc3d_cmds=cli.radmc3d)
+        # Run a thermal Monte-Carlo
+        if cli.monte_carlo:
+            pipeline.monte_carlo(nphot=cli.nphot, radmc3d_cmds=cli.radmc3d)
 
-    # Run a ray-tracing on the new grid and generate an image
-    if cli.raytrace:
-        pipeline.raytrace(lam=cli.lam, incl=cli.incl, npix=cli.npix, 
-            sizeau=cli.sizeau, show=cli.show_rt, noscat=cli.noscat,
-            radmc3d_cmds=cli.radmc3d)
+        # Run a ray-tracing on the new grid and generate an image
+        if cli.raytrace:
+            pipeline.raytrace(lam=cli.lam, incl=cli.incl, npix=cli.npix, 
+                sizeau=cli.sizeau, show=cli.show_rt, noscat=cli.noscat,
+                radmc3d_cmds=cli.radmc3d)
 
-    # Run a synthetic observation of the new image by calling the CASA simulator
-    if cli.synobs:
-        pipeline.synthetic_observation(show=cli.show_synobs, lam=cli.lam, 
-            graphic=False, verbose=False)
+        # Run a synthetic observation of the new image by calling CASA
+        if cli.synobs:
+            pipeline.synthetic_observation(show=cli.show_synobs, lam=cli.lam, 
+                graphic=False, verbose=False)
 
+    pipeline()
 

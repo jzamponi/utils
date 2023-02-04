@@ -138,9 +138,10 @@ def write_fits(filename, data, header=None, overwrite=True, verbose=False):
 
 def elapsed_time(caller):
     """ Decorator designed to print the time taken by a functon. """
-    # TO DO: Find a way to forward verbose from the caller even when
-    # is not provided explicitly, so that it takes the default value 
-    # from the caller.
+    # To do: elapsed_time() is not forwarding the error and exceptions
+    # all the way up to its origin and makes it harder to debug. 
+    # It only returns the following message from wrapper(): 
+    # UnboundLocalError: local variable 'f' referenced before assignment
 
     # Forward docstrings to the caller function
     @wraps(caller)
@@ -149,19 +150,13 @@ def elapsed_time(caller):
         # Measure time before it runs
         start = time.time()
 
-        try:
-            # Execute the caller function
-            f = caller(*args, **kwargs)
-        except KeyboardInterrupt:
-            # Print the time even after sending SIGINT (Ctrl+C)
-            print_('\nExecution interrupted by user.')
-        except Exception as e:
-            print_(e)
+        # Execute the caller function
+        f = caller(*args, **kwargs)
 
         # Measure time difference after it finishes
         run_time = time.time() - start
 
-        # Print the elapsed time nicely formatted, if verbose is enabled
+        # Print the elapsed time nicely formatted
         print_(
             f'Elapsed time: {time.strftime("%H:%M:%S", time.gmtime(run_time))}',
             verbose = True, 
@@ -1275,13 +1270,13 @@ def edit_header(filename, key, value, verbose=True):
 def plot_map(
     filename,
     header=None,
-    rescale=1,
+    rescale=None,
     transpose=False,
     rot90=False, 
     fliplr=False, 
     flipud=False, 
     cblabel=None,
-    scalebar=20 * u.au,
+    scalebar=None,
     cmap="magma",
     stretch='linear', 
     verbose=True,
@@ -1323,6 +1318,24 @@ def plot_map(
     if fliplr:
         print_('Flipping left to right', verbose)
         data = np.fliplr(data)
+    if rescale is not None:
+        print_(f'Rescaling data by factor of: {rescale}', verbose)
+        data *= rescale
+    if bright_temp:
+        try:
+            # Convert Jy/beam into Kelvin
+            data = Tb(
+                data=data,
+                freq=hdr.get("RESTFRQ") * u.Hz.to(u.GHz),
+                bmin=hdr.get("bmin") * u.deg.to(u.arcsec),
+                bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
+            )
+        except Exception as e:
+            print_(f'{e}', verbose)
+            print_('Beam or frequency keywords not available. ' +\
+            'Impossible to convert into T_b.', verbose, bold=True)
+    
+    write_fits(filename, data.squeeze(), hdr, True, verbose)
 
     # Remove non-celestial WCS
     filename_ = filename
@@ -1338,24 +1351,10 @@ def plot_map(
             header=hdr_, 
             overwrite=True
         )
-        filename = tempfile
-    
-    # Convert Jy/beam into Kelvin if required
-    if bright_temp:
-        try:
-            rescale = Tb(
-                data=rescale,
-                freq=hdr.get("RESTFRQ") * u.Hz.to(u.GHz),
-                bmin=hdr.get("bmin") * u.deg.to(u.arcsec),
-                bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
-            )
-        except Exception as e:
-            print_('Beam or frequency keywords not available. ' +\
-            'Impossible to convert into T_b.', verbose, bold=True)
+        filename = tempfile    
 
     # Initialize the figure
-    fig = FITSFigure(
-        str(filename), rescale=rescale, figsize=figsize, *args, **kwargs)
+    fig = FITSFigure(str(filename), figsize=figsize, *args, **kwargs)
     fig.set_auto_refresh(True)
     fig.show_colorscale(cmap=cmap, vmax=vmax, vmin=vmin, stretch=stretch)
     
@@ -1413,8 +1412,8 @@ def plot_map(
     fig.ticks.set_minor_frequency(5)
 
     # Hide ticks and labels if FITS file is not a real obs.
-    if "alma" not in str(filename_) or "vla" not in str(filename_):
-        print_(f'File: {filename_}. Hiding axis ticks and labels', False)
+    if "alma" not in str(filename) or "vla" not in str(filename):
+        print_(f'File: {filename}. Hiding axis ticks and labels', verbose)
         fig.axis_labels.hide()
 
     # Beam
@@ -1446,9 +1445,6 @@ def plot_map(
         fig.scalebar.set_font(size=23)
         fig.scalebar.set_linewidth(3)
         fig.scalebar.set_label(f"{int(scalebar.value)}{unit}")
-
-    # Delete the temporary file created to get rid of extra dimensions
-    if hdr.get("NAXIS") > 2 and os.path.isfile(tempfile): os.remove(tempfile)
 
     return plot_checkout(fig, show, savefig, block=block) if checkout else fig
 
@@ -1520,9 +1516,10 @@ def polarization_map(
     rms_I=None, 
     rms_Q=None, 
     bright_temp=False, 
-    rescale=1, 
+    rescale=None,
     savefig=None,
     show=True,
+    block=False, 
     verbose=True,
     *args,
     **kwargs,
@@ -1810,7 +1807,7 @@ def polarization_map(
         bright_temp=bright_temp, 
         scalebar=scalebar, 
         verbose=verbose, 
-        block=False,
+        block=block,
         *args,
         **kwargs,
     )
@@ -1877,7 +1874,7 @@ def polarization_map(
             colors='green',
         )
 
-    return plot_checkout(fig, show, savefig)
+    return plot_checkout(fig, show, savefig, block=block)
 
 
 def spectral_index(
