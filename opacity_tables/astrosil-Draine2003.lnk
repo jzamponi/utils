@@ -1,3 +1,6 @@
+# Optical constants obtained from the Optool's collection.
+# src: https://github.com/cdominik/optool
+#
 # "Astronomical Silicate"
 # Reference: Draine 2003, ApJ 598, 1017
 # Material is basically MgFeSiO4, but constants are smoothed
