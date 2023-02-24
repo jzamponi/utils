@@ -5,7 +5,7 @@ import random
 
 Simobserve = True
 Clean = True
-polarization = True
+polarization = False
 
 start = time.time()
 
@@ -13,7 +13,7 @@ if Simobserve:
     print('\033[1m\n[alma_simulation] Observing Stokes I ...\033[0m')
     simobserve(
         project = 'band6_I',
-        skymodel = 'polaris_I.fits',
+        skymodel = 'radmc3d_I.fits',
         incenter = '233GHz',
         inwidth = '7.5GHz', 
         setpointings = True,
@@ -34,7 +34,7 @@ if Simobserve:
         print('\033[1m\n[alma_simulation] Observing Stokes Q ...\033[0m')
         simobserve(
             project = 'band6_Q',
-            skymodel = 'polaris_Q.fits',
+            skymodel = 'radmc3d_Q.fits',
             incenter = '233GHz',
             inwidth = '7.5GHz', 
             setpointings = True,
@@ -54,7 +54,7 @@ if Simobserve:
         print('\033[1m\n[alma_simulation]\033[0m Observing Stokes U ...\033[0m')
         simobserve(
             project = 'band6_U',
-            skymodel = 'polaris_U.fits',
+            skymodel = 'radmc3d_U.fits',
             incenter = '233GHz',
             inwidth = '7.5GHz', 
             setpointings = True,
@@ -138,15 +138,15 @@ if Clean:
 
     imregrid('band6_I/clean_I.image', template='band6_I/band6_I.alma.cycle3.5.skymodel.flat', \
         output='band6_I/clean_I.image_modelsize', overwrite=True)
-    exportfits('band6_I/clean_I.image_modelsize', fitsimage='alma_I.fits', dropdeg=True, overwrite=True)
+    exportfits('band6_I/clean_I.image_modelsize', fitsimage='synobs_I.fits', dropdeg=True, overwrite=True)
 
     if polarization:
         imregrid('band6_Q/clean_Q.image', template='band6_Q/band6_Q.alma.cycle3.5.skymodel.flat', \
             output='band6_Q/clean_Q.image_modelsize', overwrite=True)
         imregrid('band6_U/clean_U.image', template='band6_U/band6_U.alma.cycle3.5.skymodel.flat', \
             output='band6_U/clean_U.image_modelsize', overwrite=True)
-        exportfits('band6_Q/clean_Q.image_modelsize', fitsimage='alma_Q.fits', dropdeg=True, overwrite=True)
-        exportfits('band6_U/clean_U.image_modelsize', fitsimage='alma_U.fits', dropdeg=True, overwrite=True)
+        exportfits('band6_Q/clean_Q.image_modelsize', fitsimage='synobs_Q.fits', dropdeg=True, overwrite=True)
+        exportfits('band6_U/clean_U.image_modelsize', fitsimage='synobs_U.fits', dropdeg=True, overwrite=True)
 
 
 print('\n[alma_simulaton] Elapsed time: {}'\
