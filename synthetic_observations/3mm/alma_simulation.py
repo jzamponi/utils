@@ -9,7 +9,7 @@ start = time.time()
 if Simobserve:
     simobserve(
         project = 'band3',
-        skymodel = 'polaris_I.fits',
+        skymodel = 'radmc3d_I.fits',
         inbright = '',
         incell = '',
         mapsize = '',
@@ -50,12 +50,12 @@ if Clean:
 imregrid('band3/clean.image', template='band3/band3.alma.cycle5.10.skymodel.flat', 
          output='band3/clean.image.modelsize', overwrite=True)
 
-exportfits('band3/clean.image.modelsize', fitsimage='alma_I.fits', dropstokes=True, overwrite=True)
+exportfits('band3/clean.image.modelsize', fitsimage='synobs_I.fits', dropstokes=True, overwrite=True)
 
 # Smooth to match the 1.3mm resolution. Meant for the spectral index map.
-imsmooth('alma_I.fits', major='0.081855237483972arcsec', minor='0.06690255552529199arcsec', 
+imsmooth('synobs_I.fits', major='0.081855237483972arcsec', minor='0.06690255552529199arcsec', 
          pa='79.39564514160deg', targetres=True, outfile='smoothed')
-exportfits('smoothed', fitsimage='alma_I_smoothed1.3mm.fits', dropstokes=True, overwrite=True)
+exportfits('smoothed', fitsimage='synobs_I_smoothed1.3mm.fits', dropstokes=True, overwrite=True)
 os.system('rm -r smoothed')
 
 
