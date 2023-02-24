@@ -10,7 +10,7 @@ if Simobserve:
     print('\033[1m\n[vla_simulation] Observing Stokes I ...\033[0m')
     simobserve(
         project = 'bandKu_I',
-        skymodel = 'polaris_I.fits',
+        skymodel = 'radmc3d_I.fits',
         incenter = '18GHz',
         inwidth = '6.144GHz', 
         setpointings = True,
@@ -50,7 +50,7 @@ if Clean:
     )
     imregrid('bandKu_I/clean_I.image', template='bandKu_I/bandKu_I.vla.a.skymodel', \
         output='bandKu_I/clean_I.image_modelsize', overwrite=True)
-    exportfits('bandKu_I/clean_I.image_modelsize', fitsimage='vla_I.fits', \
+    exportfits('bandKu_I/clean_I.image_modelsize', fitsimage='synobs_I.fits', \
         dropstokes=True, overwrite=True)
 
 print('\n[vla_simulaton] Elapsed time: {}'\
