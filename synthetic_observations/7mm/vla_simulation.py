@@ -11,7 +11,7 @@ if Simobserve:
     print('\033[1m\n[vla_simulation] Observing Stokes I ...\033[0m')
     simobserve(
         project = 'bandQ_I',
-        skymodel = 'polaris_I.fits',
+        skymodel = 'radmc3d_I.fits',
         incenter = '44GHz',
         inwidth = '8GHz', 
         setpointings = True,
@@ -31,7 +31,7 @@ if Simobserve:
         print('\033[1m\n[vla_simulation] Observing Stokes Q ...\033[0m')
         simobserve(
             project = 'bandQ_Q',
-            skymodel = 'polaris_Q.fits',
+            skymodel = 'radmc3d_Q.fits',
             incenter = '44GHz',
             inwidth = '8GHz', 
             setpointings = True,
@@ -50,7 +50,7 @@ if Simobserve:
         print('\033[1m\n[vla_simulation]\033[0m Observing Stokes U ...\033[0m')
         simobserve(
             project = 'bandQ_U',
-            skymodel = 'polaris_U.fits',
+            skymodel = 'radmc3d_U.fits',
             incenter = '44GHz',
             inwidth = '8GHz', 
             setpointings = True,
@@ -132,15 +132,15 @@ if Clean:
 
     imregrid('bandQ_I/clean_I.image', template='bandQ_I/bandQ_I.vla.cnb.skymodel.flat', \
         output='bandQ_I/clean_I.image_modelsize', overwrite=True)
-    exportfits('bandQ_I/clean_I.image_modelsize', fitsimage='vla_I.fits', dropstokes=True, overwrite=True)
+    exportfits('bandQ_I/clean_I.image_modelsize', fitsimage='synobs_I.fits', dropstokes=True, overwrite=True)
 
     if polarization:
         imregrid('bandQ_Q/clean_Q.image', template='bandQ_Q/bandQ_Q.vla.a.skymodel.flat', \
             output='bandQ_Q/clean_Q.image_modelsize', overwrite=True)
         imregrid('bandQ_U/clean_U.image', template='bandQ_U/bandQ_U.vla.a.skymodel.flat', \
             output='bandQ_U/clean_U.image_modelsize', overwrite=True)
-        exportfits('bandQ_Q/clean_Q.image_modelsize', fitsimage='vla_Q.fits', overwrite=True, dropstokes=True)
-        exportfits('bandQ_U/clean_U.image_modelsize', fitsimage='vla_U.fits', overwrite=True, dropstokes=True)
+        exportfits('bandQ_Q/clean_Q.image_modelsize', fitsimage='synobs_Q.fits', overwrite=True, dropstokes=True)
+        exportfits('bandQ_U/clean_U.image_modelsize', fitsimage='synobs_U.fits', overwrite=True, dropstokes=True)
 
 
 print('\n[vla_simulaton] Elapsed time: {}'\
