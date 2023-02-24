@@ -1,14 +1,15 @@
 # IRAS16293 B
 # Setup based on Maureira et al. (2020) 
 import time
-Simobserve = True
-Clean = True
+Simobserve = False
+Clean = False
 
 start = time.time()
-
+     
 if Simobserve:
+    print("\033[1m\n[alma_simulation] Observing Stokes I ...\033[0m\n")
     simobserve(
-        project = 'band3',
+        project = 'synobs_data',
         skymodel = 'radmc3d_I.fits',
         inbright = '',
         incell = '',
@@ -25,13 +26,14 @@ if Simobserve:
         thermalnoise = 'tsys-manual',
         graphics = 'both',
         overwrite = True,
-        verbose = True
+        verbose = False
     )
 
 if Clean:
+    print("\033[1m\n[alma_simulation] Cleaning Stokes I ...\033[0m\n")
     tclean(
-        vis = 'band3/band3.alma.cycle5.10.noisy.ms',
-        imagename = 'band3/clean',
+        vis = 'synobs_data/synobs_data.alma.cycle5.10.noisy.ms',
+        imagename = 'synobs_data/clean',
         imsize = 300,
         cell = '0.0058arcsec',
         specmode = 'mfs',
@@ -42,20 +44,42 @@ if Clean:
         robust = 0.5,
         niter = 10000,
         threshold = '5e-5Jy',
-        mask = 'band3/band3.alma.cycle5.10.skymodel', 
+        mask = 'synobs_data/synobs_data.alma.cycle5.10.skymodel', 
         interactive = False,
-        verbose = True
+        verbose = False
     )
     
-imregrid('band3/clean.image', template='band3/band3.alma.cycle5.10.skymodel.flat', 
-         output='band3/clean.image.modelsize', overwrite=True)
+imregrid(
+    'synobs_data/clean.image', 
+    template='synobs_data/synobs_data.alma.cycle5.10.skymodel.flat', 
+    output='synobs_data/clean.image.modelsize', 
+    overwrite=True
+)
 
-exportfits('band3/clean.image.modelsize', fitsimage='synobs_I.fits', dropstokes=True, overwrite=True)
+print("\033[1m\n[alma_simulation] Exporting Stokes I ...\033[0m\n")
+exportfits(
+    'synobs_data/clean.image.modelsize', 
+    fitsimage='synobs_I.fits', 
+    dropstokes=True, 
+    overwrite=True
+)
 
 # Smooth to match the 1.3mm resolution. Meant for the spectral index map.
-imsmooth('synobs_I.fits', major='0.081855237483972arcsec', minor='0.06690255552529199arcsec', 
-         pa='79.39564514160deg', targetres=True, outfile='smoothed')
-exportfits('smoothed', fitsimage='synobs_I_smoothed1.3mm.fits', dropstokes=True, overwrite=True)
+imsmooth(
+    'synobs_I.fits', 
+    major='0.081855237483972arcsec', 
+    minor='0.06690255552529199arcsec', 
+    pa='79.39564514160deg', 
+    targetres=True, 
+    outfile='smoothed'
+)
+
+exportfits(
+    'smoothed', 
+    fitsimage='synobs_I_smoothed1.3mm.fits', 
+    dropstokes=True, 
+    overwrite=True
+)
 os.system('rm -r smoothed')
 
 
