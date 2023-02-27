@@ -136,17 +136,42 @@ if Clean:
             verbose = True
         )
 
-    imregrid('band6_I/clean_I.image', template='band6_I/band6_I.alma.cycle3.5.skymodel.flat', \
-        output='band6_I/clean_I.image_modelsize', overwrite=True)
-    exportfits('band6_I/clean_I.image_modelsize', fitsimage='synobs_I.fits', dropdeg=True, overwrite=True)
+    imregrid(
+        'band6_I/clean_I.image', 
+        template='band6_I/band6_I.alma.cycle3.5.skymodel.flat',
+        output='band6_I/clean_I.image_modelsize', 
+        overwrite=True
+    )
+    exportfits(
+        'band6_I/clean_I.image_modelsize', 
+        fitsimage='synobs_I.fits', 
+        dropdeg=True, 
+        overwrite=True
+    )
 
     if polarization:
-        imregrid('band6_Q/clean_Q.image', template='band6_Q/band6_Q.alma.cycle3.5.skymodel.flat', \
-            output='band6_Q/clean_Q.image_modelsize', overwrite=True)
-        imregrid('band6_U/clean_U.image', template='band6_U/band6_U.alma.cycle3.5.skymodel.flat', \
-            output='band6_U/clean_U.image_modelsize', overwrite=True)
-        exportfits('band6_Q/clean_Q.image_modelsize', fitsimage='synobs_Q.fits', dropdeg=True, overwrite=True)
-        exportfits('band6_U/clean_U.image_modelsize', fitsimage='synobs_U.fits', dropdeg=True, overwrite=True)
+        imregrid('
+            band6_Q/clean_Q.image', 
+            template='band6_Q/band6_Q.alma.cycle3.5.skymodel.flat',
+            output='band6_Q/clean_Q.image_modelsize', overwrite=True
+        )
+        imregrid(
+            'band6_U/clean_U.image', 
+            template='band6_U/band6_U.alma.cycle3.5.skymodel.flat',
+            output='band6_U/clean_U.image_modelsize', 
+            overwrite=True
+        )
+        exportfits(
+            'band6_Q/clean_Q.image_modelsize', 
+            fitsimage='synobs_Q.fits', 
+            dropdeg=True, overwrite=True
+        )
+        exportfits(
+            'band6_U/clean_U.image_modelsize', 
+             fitsimage='synobs_U.fits', 
+             dropdeg=True, 
+             overwrite=True
+        )
 
 
 print('\n[alma_simulaton] Elapsed time: {}'\
