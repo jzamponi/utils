@@ -1,0 +1,336 @@
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a10um-10org.inp
+[dustmixer] Elapsed time: 00:02:23
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a10um-10org.inp
+[dustmixer] Elapsed time: 00:02:32
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a10um-30org.inp
+[dustmixer] Elapsed time: 00:02:19
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a10um-30org.inp
+[dustmixer] Elapsed time: 00:02:28
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a10um-50org.inp
+[dustmixer] Elapsed time: 00:02:21
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a10um-50org.inp
+[dustmixer] Elapsed time: 00:02:32
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a10um-80org.inp
+[dustmixer] Elapsed time: 00:02:18
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 10 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a10um-80org.inp
+[dustmixer] Elapsed time: 00:02:27
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a100um-10org.inp
+[dustmixer] Elapsed time: 00:10:24
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a100um-10org.inp
+[dustmixer] Elapsed time: 00:10:30
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a100um-30org.inp
+[dustmixer] Elapsed time: 00:11:05
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a100um-30org.inp
+[dustmixer] Elapsed time: 00:10:36
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a100um-50org.inp
+[dustmixer] Elapsed time: 00:10:19
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a100um-50org.inp
+[dustmixer] Elapsed time: 00:10:35
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a100um-80org.inp
+[dustmixer] Elapsed time: 00:10:46
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 100 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a100um-80org.inp
+[dustmixer] Elapsed time: 00:10:34
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a1000um-10org.inp
+[dustmixer] Elapsed time: 01:12:10
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a1000um-10org.inp
+[dustmixer] Elapsed time: 01:10:44
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a1000um-30org.inp
+[dustmixer] Elapsed time: 01:12:36
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a1000um-30org.inp
+[dustmixer] Elapsed time: 01:21:44
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a1000um-50org.inp
+[dustmixer] Elapsed time: 01:10:23
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a1000um-50org.inp
+[dustmixer] Elapsed time: 01:15:17
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkappa_sgo-a1000um-80org.inp
+[dustmixer] Elapsed time: 01:11:11
+
+[1m[dustmixer] Calculating dust opacities ...
+ [0m
+[set_nk] Reading optical constants from: astrosil-Draine2003.lnk | Density: 3.3 g/cm3
+[set_nk] Reading optical constants from: c-gra-Draine2003.lnk | Density: 2.16 g/cm3
+[set_nk] Reading optical constants from: c-org-Henning1996.lnk | Density: 1.5 g/cm3
+[get_opacities] Calculating efficiencies for Silicate using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Graphite using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[get_opacities] Calculating efficiencies for Organics using 200 sizes between 0.1 and 1000 microns ...
+[get_opacities] Integrating opacities and scattering matrix using a power-law slope of q = -3.5
+[write_opacity_file] Writing out radmc3d opacity file: dustkapscatmat_sgo-a1000um-80org.inp
+[dustmixer] Elapsed time: 01:13:02
