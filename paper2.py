@@ -35,7 +35,8 @@ cmap = cmap[::-1]
 
 
 @utils.elapsed_time
-def plot_observations(horizontal_layout=True, show=True, savefig=None):
+def plot_observations(
+    polarization=True, horizontal_layout=True, show=True, savefig=None):
     """ Figure 1 """
 
     if horizontal_layout:
@@ -61,6 +62,7 @@ def plot_observations(horizontal_layout=True, show=True, savefig=None):
         vmin=0, 
         vmax=287, 
         contours=False, 
+        bright_temp=True, 
         figure=fig,
         subplot=[x[0], y[0], dx, dy], 
     )
@@ -72,16 +74,19 @@ def plot_observations(horizontal_layout=True, show=True, savefig=None):
         vmin=0, 
         vmax=468, 
         contours=False, 
+        bright_temp=True, 
         figure=fig,
         subplot=[x[1], y[1], dx, dy], 
     )
     f3 = utils.plot_map(
-        home/f'phd/observations/iras16293/bandQ/stokes_I_zoom.fits', 
+        #home/f'phd/observations/iras16293/bandQ/stokes_I_zoom.fits', 
+        home/f'phd/observations/iras16293/bandKa/stokes_I_zoom.fits', 
         figsize=None, 
         stretch='linear',
         scalebar=None,
         vmin=0, 
-        vmax=150, 
+        #vmax=150, 
+        vmax=470, 
         bright_temp=True, 
         figure=fig,
         subplot=[x[2], y[2], dx, dy], 
@@ -97,51 +102,71 @@ def plot_observations(horizontal_layout=True, show=True, savefig=None):
         figure=fig,
         subplot=[x[3], y[3], dx, dy], 
     )
+
+    # Remove degenerated axes
+    utils.dropdeg(f1)
+    utils.dropdeg(f2)
     
     # Add polarization vectors for Band Q
-    vec_scale = 60
-    pol_label = 1 / 30
-    f1.show_vectors(
-        str(home/"phd/observations/iras16293/band6/sadavoy/per_zoom_recenter_masked.fits"), 
-        str(home/"phd/observations/iras16293/band6/sadavoy/pa_zoom_recenter.fits"), 
-        step=1,
-        scale=vec_scale,
-        rotate=0,
-        color='cyan',
-        linewidth=1, 
-        units='degrees', 
-        layer="pol_vectors",
-    )
-    f3.show_vectors(
-        str(home/"phd/observations/iras16293/bandQ/per_zoom.fits"), 
-        str(home/"phd/observations/iras16293/bandQ/pa_zoom.fits"), 
-        step=2, 
-        scale=vec_scale,
-        rotate=0,
-        color='cyan',
-        linewidth=1, 
-        units='degrees', 
-        layer="pol_vectors",
-    )
+    if polarization:
+        vec_scale = 60
+        pol_label = 1 / 30
+        f1.show_vectors(
+            str(home/"phd/observations/iras16293/band6/sadavoy/per_zoom_recenter_masked.fits"), 
+            str(home/"phd/observations/iras16293/band6/sadavoy/pa_zoom_recenter.fits"), 
+            step=1,
+            scale=vec_scale,
+            rotate=0,
+            color='cyan',
+            linewidth=1, 
+            units='degrees', 
+            layer="pol_vectors",
+        )
+        f3.show_vectors(
+            str(home/"phd/observations/iras16293/bandQ/per_zoom.fits"), 
+            str(home/"phd/observations/iras16293/bandQ/pa_zoom.fits"), 
+            step=6, 
+            scale=vec_scale,
+            rotate=0,
+            color='cyan',
+            linewidth=1, 
+            units='degrees', 
+            layer="pol_vectors",
+        )
+
+    # Zoom in the images
+    distance = 141
+    model_angular_size = 120*u.au.to(u.pc) / distance
+    model_angular_size = 250*u.au.to(u.pc) / distance
+    img_radius = (model_angular_size/2)*u.rad.to(u.deg)
+
+    f1.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
+    f2.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
+
+    coord = SkyCoord(ra='16h32m22.615s', dec='-24d28m32.6s')
+    f3.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
+    f4.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
+    
     
     # Add a polarization scale bar
-    f1.add_scalebar(vec_scale * pol_label * (0.06 * u.arcsec.to(u.deg)))
-    f3.add_scalebar(vec_scale * pol_label * (0.02 * u.arcsec.to(u.deg)))
-    f1.scalebar.set_corner("bottom")
-    f3.scalebar.set_corner("bottom right")
-    f1.scalebar.set_font(size=15)
-    f3.scalebar.set_font(size=15)
-    f1.scalebar.set_linewidth(1)
-    f3.scalebar.set_linewidth(1)
-    f1.scalebar.set_label(f'{int(vec_scale * pol_label)}\%')
-    f3.scalebar.set_label(f'{int(vec_scale * pol_label)}\%')
-    f1.scalebar.set(linecolor='cyan')
-    f1.scalebar.set_color('cyan')
-    f3.scalebar.set_color('cyan')
+    if polarization:
+        f1.add_scalebar(vec_scale * pol_label * (0.06 * u.arcsec.to(u.deg)))
+        f3.add_scalebar(vec_scale * pol_label * (0.06 * u.arcsec.to(u.deg)))
+        f1.scalebar.set_corner("bottom")
+        f3.scalebar.set_corner("bottom right")
+        f1.scalebar.set_font(size=15)
+        f3.scalebar.set_font(size=15)
+        f1.scalebar.set_linewidth(1)
+        f3.scalebar.set_linewidth(1)
+        f1.scalebar.set_label(f'{int(vec_scale * pol_label)}\%')
+        f3.scalebar.set_label(f'{int(vec_scale * pol_label)}\%')
+        f1.scalebar.set(linecolor='cyan')
+        f1.scalebar.set_color('cyan')
+        f3.scalebar.set_color('cyan')
 
     # Customize all panels
     for f in [f1, f2, f3, f4]:
-        f.scalebar.set_color('white')
+        if polarization: f.scalebar.set_color('white')
         f.ticks.set_color('white')
         f.ticks.set_length(7)
         f.ticks.set_linewidth(2)
@@ -157,45 +182,50 @@ def plot_observations(horizontal_layout=True, show=True, savefig=None):
         f.axis_labels.hide_y()
 
     # Add the beam of the band 6 polarized data
-    f1.remove_beam(0)
-    f1.remove_beam(1)
-    f1.add_beam()
-    f1.add_beam()
-    f1.beam[0].set(edgecolor='white', facecolor='none', linewidth=1)
-    f1.beam[1].set(edgecolor='cyan', facecolor='none', linewidth=1)
-    f1.beam[0].set_major(0.11*u.arcsec.to(u.deg))
-    f1.beam[0].set_minor(0.07*u.arcsec.to(u.deg))
-    f1.beam[0].set_angle(-88.21)
-    f1.beam[1].set_corner('bottom right')
-    f1.beam[1].set_major(0.25*u.arcsec.to(u.deg))
-    f1.beam[1].set_minor(0.18*u.arcsec.to(u.deg))
-    f1.beam[1].set_angle(80.28)
+    if polarization:
+        f1.remove_beam(0)
+        f1.remove_beam(1)
+        f1.add_beam()
+        f1.add_beam()
+        f1.beam[0].set(edgecolor='white', facecolor='none', linewidth=1)
+        f1.beam[0].set_major(0.11*u.arcsec.to(u.deg))
+        f1.beam[0].set_minor(0.07*u.arcsec.to(u.deg))
+        f1.beam[0].set_angle(-88.21)
+
+        f1.beam[1].set(edgecolor='cyan', facecolor='none', linewidth=1)
+        f1.beam[1].set_corner('bottom right')
+        f1.beam[1].set_major(0.25*u.arcsec.to(u.deg))
+        f1.beam[1].set_minor(0.18*u.arcsec.to(u.deg))
+        f1.beam[1].set_angle(80.28)
+
+        # Add the beam of the band Q polarized data
+        f3.remove_beam(0)
+        f3.remove_beam(1)
+        f3.add_beam()
+        f3.add_beam()
+        f3.beam[0].set(edgecolor='white', facecolor='none', linewidth=1)
+        f3.beam[0].set_major(0.39*u.arcsec.to(u.deg))
+        f3.beam[0].set_minor(0.25*u.arcsec.to(u.deg))
+        f3.beam[0].set_angle(73.75)
+
+        f3.beam[1].set(edgecolor='cyan', facecolor='none', linewidth=1)
+        f3.beam[1].set_corner('bottom right')
+        f3.beam[1].set_major(0.11*u.arcsec.to(u.deg))
+        f3.beam[1].set_minor(0.05*u.arcsec.to(u.deg))
+        f3.beam[1].set_angle(-22.48)
 
     # Label each panel
     f1.add_label(0.95, 0.88, r'ALMA 1.3mm', relative=True, layer='band', 
         color='white', size=21, ha='right')
     f2.add_label(0.95, 0.88, r'ALMA 3mm', relative=True, layer='band', 
         color='white', size=21, ha='right')
-    f3.add_label(0.95, 0.88, r'VLA 7mm', relative=True, layer='band', 
+    f3.add_label(0.05, 0.88, r'VLA 7mm', relative=True, layer='band', 
+        color='cyan', size=21, ha='left')
+    f3.add_label(0.95, 0.88, r'VLA 9mm', relative=True, layer='band', 
         color='white', size=21, ha='right')
     f4.add_label(0.95, 0.88, r'VLA 18mm', relative=True, layer='band', 
         color='white', size=21, ha='right')
 
-    # Recenter the figures
-    model_angular_size = 120*u.au.to(u.pc) / 141
-    img_radius = (model_angular_size/2)*u.rad.to(u.deg)
-
-    # Recenter ALMA images
-    coord = SkyCoord(ra='16h32m22.63s', dec='-24d28m31.8s')
-    f1.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
-    f2.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
-
-    # Recenter VLA image
-    coord = SkyCoord(ra='16h32m22.615s', dec='-24d28m32.5s')
-    f3.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
-    coord = SkyCoord(ra='16h32m22.615s', dec='-24d28m32.7s')
-    f4.recenter(coord.ra.value, coord.dec.value, radius=img_radius)
-    
     # Add each FITS-sub-figure to the main figure 
     fig.f1 = f1
     fig.f2 = f2
@@ -209,33 +239,26 @@ def plot_disk_model(show=True, savefig=None, figsize=(6, 6)):
     from matplotlib.colors import LogNorm
     
     # Read the data
-    data, hdr = fits.getdata(home/'phd/polaris/rhd_disk/results/snap541/dust_emission/'\
-        'temp_eos/sg/amax10um/3mm/0deg/dust_scat/data/input_midplane.fits.gz', 
-        header=True)
+    dens = fits.getdata(
+        home/'phd/radmc3d/rhd_disk/grid/cartesian/density_3d.fits')
+    temp = fits.getdata(
+        home/'phd/radmc3d/rhd_disk/grid/cartesian/temperature_3d.fits')
 
-    dens = {'faceon': data[0,0], 'edgeon': data[0,1]}
-    temp = {'faceon': data[2,0], 'edgeon': data[2,1]}
-
-    # Convert density to cgs
-    dens = {p: d*(u.kg*u.m**-3).to(u.g*u.cm**-3) for (p,d) in dens.items()}
-
-    # Zoom in the maps
-    dens['faceon'] = dens['faceon'][300:700,300:700].T
-    temp['faceon'] = temp['faceon'][300:700,300:700].T
-    dens['edgeon'] = dens['edgeon'][450:550,300:700]
-    temp['edgeon'] = temp['edgeon'][450:550,300:700]
-
-    # Clip a point with extremely high temperature
-    temp['edgeon'][22:30, 222:226] = 600
+    sizeau = 100
+    ncells = dens.shape[0]
+    midplane = ncells // 2
+    dens = dens * 100
+    dens = {'faceon': dens[..., midplane].T, 'edgeon': dens[:, midplane, :].T}
+    temp = {'faceon': temp[..., midplane].T, 'edgeon': temp[:, midplane, :].T}
 
     # Define the pixel size in physical units
-    dx = np.round(hdr['CDELT2B'], 1)
-    dx_unit = hdr.get('CUNIT2B')
+    dx = 100 / ncells
+    dx_unit = 'AU'
     
     # Params for the GridSpec
     gridspec = {
-        'height_ratios': [4,1], 
-        #'width_ratios': [1],
+        'height_ratios': [4,2], 
+        'width_ratios': [1],
     }
 
     # Setup the figure
@@ -300,72 +323,27 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
     plt.rcParams['interactive'] = False
 
     # Set the common origin path for all data results
-    prefix=home/'phd/polaris/rhd_disk/evaporation_test/results/snap541/dust_heating/temp_eos/'
+    path = home/'phd/radmc3d/opacities/'
 
     # Read the opacities for different amax
-    a10um_sil = utils.plot_opacity_file(
-        filename=prefix/'sg/nosubl/amax10um/data/dust_mixture_001_comp_003.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a100um_sil = utils.plot_opacity_file(
-        filename=prefix/'sg/nosubl/amax100um/data/dust_mixture_001_comp_003.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a1000um_sil = utils.plot_opacity_file(
-        filename=prefix/'sg/nosubl/amax1000um/data/dust_mixture_001_comp_003.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a10um_sg = utils.plot_opacity_file(
-        filename=prefix/'sg/nosubl/amax10um/data/dust_mixture_001.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a100um_sg = utils.plot_opacity_file(
-        filename=prefix/'sg/nosubl/amax100um/data/dust_mixture_001.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a1000um_sg = utils.plot_opacity_file(
-        filename=prefix/'sg/nosubl/amax1000um/data/dust_mixture_001.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a10um_sgo = utils.plot_opacity_file(
-        filename=prefix/'sgo/mix5/amax10um/data/dust_mixture_001.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a100um_sgo = utils.plot_opacity_file(
-        filename=prefix/'sgo/mix5/amax100um/data/dust_mixture_001.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
-    a1000um_sgo = utils.plot_opacity_file(
-        filename=prefix/'sgo/mix5/amax1000um/data/dust_mixture_001.dat', 
-        col='all', 
-        return_data=True,
-        show=False, 
-        verbose=False,
-    )
+    a10um_s = utils.plot_opacity(f'{path}/dustkappa_s-a10um.inp', 
+        return_data=True)
+    a100um_s = utils.plot_opacity(f'{path}/dustkappa_s-a100um.inp', 
+        return_data=True)
+    a1000um_s = utils.plot_opacity(f'{path}/dustkappa_s-a1000um.inp', 
+        return_data=True)
+    a10um_sg = utils.plot_opacity(f'{path}/dustkappa_sg-a10um.inp', 
+        return_data=True)
+    a100um_sg = utils.plot_opacity(f'{path}/dustkappa_sg-a100um.inp', 
+        return_data=True)
+    a1000um_sg = utils.plot_opacity(f'{path}/dustkappa_sg-a1000um.inp', 
+        return_data=True)
+    a10um_sgo = utils.plot_opacity(f'{path}/dustkappa_sgo-a10um-50org.inp', 
+        return_data=True)
+    a100um_sgo = utils.plot_opacity(f'{path}/dustkappa_sgo-a100um-50org.inp', 
+        return_data=True)
+    a1000um_sgo = utils.plot_opacity(f'{path}/dustkappa_sgo-a1000um-50org.inp', 
+        return_data=True)
 
     # Close all previously generated figures
     plt.close('all')
@@ -391,9 +369,9 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
     p[2].loglog([], [], ls=ls[2], color='black', label=r'$\kappa^{\rm ext}$')
     
     # First panel: amax10um
-    p[0].loglog(a10um_sil['lam'], a10um_sil['abs'], color=cmap[0], ls=ls[0])
-    p[0].loglog(a10um_sil['lam'], a10um_sil['sca'], color=cmap[0], ls=ls[1])
-    p[0].loglog(a10um_sil['lam'], a10um_sil['ext'], color=cmap[0], label=r'Sil')
+    p[0].loglog(a10um_s['lam'], a10um_s['abs'], color=cmap[0], ls=ls[0])
+    p[0].loglog(a10um_s['lam'], a10um_s['sca'], color=cmap[0], ls=ls[1])
+    p[0].loglog(a10um_s['lam'], a10um_s['ext'], color=cmap[0], label=r'Sil')
     p[0].loglog(a10um_sg['lam'], a10um_sg['abs'], color=cmap[1], ls=ls[0])
     p[0].loglog(a10um_sg['lam'], a10um_sg['sca'], color=cmap[1], ls=ls[1])
     p[0].loglog(a10um_sg['lam'], a10um_sg['ext'], color=cmap[1], label=r'Sil:Gra')
@@ -402,9 +380,9 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
     p[0].loglog(a10um_sgo['lam'], a10um_sgo['ext'], color=cmap[2], label=r'Sil:Gra:Org')
     
     # Second panel: amax100um
-    p[1].loglog(a100um_sil['lam'], a100um_sil['abs'], color=cmap[0], ls=ls[0])
-    p[1].loglog(a100um_sil['lam'], a100um_sil['sca'], color=cmap[0], ls=ls[1])
-    p[1].loglog(a100um_sil['lam'], a100um_sil['ext'], color=cmap[0], label=r'Sil')
+    p[1].loglog(a100um_s['lam'], a100um_s['abs'], color=cmap[0], ls=ls[0])
+    p[1].loglog(a100um_s['lam'], a100um_s['sca'], color=cmap[0], ls=ls[1])
+    p[1].loglog(a100um_s['lam'], a100um_s['ext'], color=cmap[0], label=r'Sil')
     p[1].loglog(a100um_sg['lam'], a100um_sg['abs'], color=cmap[1], ls=ls[0])
     p[1].loglog(a100um_sg['lam'], a100um_sg['sca'], color=cmap[1], ls=ls[1])
     p[1].loglog(a100um_sg['lam'], a100um_sg['ext'], color=cmap[1], label=r'Sil:Gra')
@@ -413,9 +391,9 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
     p[1].loglog(a100um_sgo['lam'], a100um_sgo['ext'], color=cmap[2], label=r'Sil:Gra:Org')
 
     # Third panel: amax1000um
-    p[2].loglog(a1000um_sil['lam'], a1000um_sil['abs'], color=cmap[0], ls=ls[0])
-    p[2].loglog(a1000um_sil['lam'], a1000um_sil['sca'], color=cmap[0], ls=ls[1])
-    p[2].loglog(a1000um_sil['lam'], a1000um_sil['ext'], color=cmap[0], label=r'Sil')
+    p[2].loglog(a1000um_s['lam'], a1000um_s['abs'], color=cmap[0], ls=ls[0])
+    p[2].loglog(a1000um_s['lam'], a1000um_s['sca'], color=cmap[0], ls=ls[1])
+    p[2].loglog(a1000um_s['lam'], a1000um_s['ext'], color=cmap[0], label=r'Sil')
     p[2].loglog(a1000um_sg['lam'], a1000um_sg['abs'], color=cmap[1], ls=ls[0])
     p[2].loglog(a1000um_sg['lam'], a1000um_sg['sca'], color=cmap[1], ls=ls[1])
     p[2].loglog(a1000um_sg['lam'], a1000um_sg['ext'], color=cmap[1], label=r'Sil:Gra')
@@ -441,22 +419,22 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
     # Illustrate the observing bands
     p[0].axvline(1.3e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[0].axvline(3e3, ls='-', color='grey', lw=0.5, alpha=0.6)
-    p[0].axvline(7e3, ls='-', color='grey', lw=0.5, alpha=0.6)
+    p[0].axvline(9e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[0].axvline(18e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[1].axvline(1.3e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[1].axvline(3e3, ls='-', color='grey', lw=0.5, alpha=0.6)
-    p[1].axvline(7e3, ls='-', color='grey', lw=0.5, alpha=0.6)
+    p[1].axvline(9e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[1].axvline(18e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[2].axvline(1.3e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[2].axvline(3e3, ls='-', color='grey', lw=0.5, alpha=0.6)
-    p[2].axvline(7e3, ls='-', color='grey', lw=0.5, alpha=0.6)
+    p[2].axvline(9e3, ls='-', color='grey', lw=0.5, alpha=0.6)
     p[2].axvline(18e3, ls='-', color='grey', lw=0.5, alpha=0.6)
 
     p[0].text(1.3e3, 5e2, 'Band 6', rotation=90, size=13, color='grey', 
         ha='center', bbox={'fc':'white','ec':'white'}) 
     p[0].text(3e3, 5e2, 'Band 3', rotation=90, size=13, color='grey', 
         ha='center', bbox={'fc':'white','ec':'white'}) 
-    p[0].text(7e3, 5e2, 'Band Q', rotation=90, size=13, color='grey', \
+    p[0].text(9e3, 5e2, 'Band Ka', rotation=90, size=13, color='grey', \
         ha='center', bbox={'fc':'white','ec':'white'}) 
     p[0].text(18e3, 5e2, 'Band Ku', rotation=90, size=13, color='grey', 
         ha='center', bbox={'fc':'white','ec':'white'}) 
@@ -464,7 +442,7 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
         ha='center', bbox={'fc':'white','ec':'white'}) 
     p[1].text(3e3, 5e2, 'Band 3', rotation=90, size=13, color='grey', 
         ha='center', bbox={'fc':'white','ec':'white'}) 
-    p[1].text(7e3, 5e2, 'Band Q', rotation=90, size=13, color='grey', \
+    p[1].text(9e3, 5e2, 'Band Ka', rotation=90, size=13, color='grey', \
         ha='center', bbox={'fc':'white','ec':'white'}) 
     p[1].text(18e3, 5e2, 'Band Ku', rotation=90, size=13, color='grey', 
         ha='center', bbox={'fc':'white','ec':'white'}) 
@@ -472,7 +450,7 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
         ha='center', bbox={'fc':'white','ec':'white'}) 
     p[2].text(3e3, 5e2, 'Band 3', rotation=90, size=13, color='grey', 
         ha='center', bbox={'fc':'white','ec':'white'}) 
-    p[2].text(7e3, 5e2, 'Band Q', rotation=90, size=13, color='grey', \
+    p[2].text(9e3, 5e2, 'Band Ka', rotation=90, size=13, color='grey', \
         ha='center', bbox={'fc':'white','ec':'white'}) 
     p[2].text(18e3, 5e2, 'Band Ku', rotation=90, size=13, color='grey', 
         ha='center', bbox={'fc':'white','ec':'white'}) 
@@ -499,8 +477,7 @@ def plot_opacities(add_albedo=False, show=True, savefig='', figsize=(16, 5)):
     return utils.plot_checkout(fig, show, savefig, path=plot_dir)
 
 
-@utils.elapsed_time
-def plot_horizontal_cuts(show=True, savefig='', figsize=(12, 10)):
+def plot_horizontal_cuts(show=True, savefig='', figsize=(12, 10), sublimation=False):
     """ Figure 3 
         Plot horizontal cuts for all four bands for amax 10, 100 & 1000um.    
     """
@@ -508,280 +485,111 @@ def plot_horizontal_cuts(show=True, savefig='', figsize=(12, 10)):
     # Avoid pylab to open a new figure for every call to horizontal_cut()
     plt.rcParams['interactive'] = False
 
-    # Set the common origin path for all data results
-    prefix=home/'phd/polaris/rhd_disk/results/snap541/dust_emission/temp_eos/sg/'
+    # Set prefixes for sets of results
+    prefix = home/'phd/radmc3d/rhd_disk/results/dust_emission/tgas/'
 
     # Call the real obs. data
-    band6_obs = utils.horizontal_cut(
-        lam='1.3mm', 
-        cut_along='max',
-        axis=0, 
-        filename=None, 
-        add_obs=True, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    band3_obs = utils.horizontal_cut(
-        lam='3mm', 
-        cut_along='max',
-        axis=0, 
-        filename=None, 
-        add_obs=True, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandQ_obs = utils.horizontal_cut(
-        lam='7mm', 
-        cut_along='max',
-        axis=0, 
-        filename=None, 
-        add_obs=True, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandKu_obs = utils.horizontal_cut(
-        lam='18mm', 
-        cut_along='max',
-        axis=0, 
-        filename=None, 
-        add_obs=True, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
+    def cut_obs(lam):
+        cut = utils.horizontal_cut(
+            lam=lam, 
+            cut_along='max',
+            axis=0, 
+            filename=None, 
+            add_obs=True, 
+            return_data=True, 
+            show=False, 
+            verbose=False,
+        )
+        plt.close()
+        return cut 
 
-    # Call the simulated data.
-    # amax 10um. All four bands. 
-    band6_a10um = utils.horizontal_cut(
-        filename=prefix/'amax10um/1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    band3_a10um = utils.horizontal_cut(
-        filename=prefix/'amax10um/3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandQ_a10um = utils.horizontal_cut(
-        filename=prefix/'amax10um/7mm/0deg/dust_scat/data/vla_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandKu_a10um = utils.horizontal_cut(
-        filename=prefix/'amax10um/18mm/0deg/dust_scat/data/vla_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    # amax 100um. All four bands. 
-    band6_a100um = utils.horizontal_cut(
-        filename=prefix/'amax100um/1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    band3_a100um = utils.horizontal_cut(
-        filename=prefix/'amax100um/3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandQ_a100um = utils.horizontal_cut(
-        filename=prefix/'amax100um/7mm/0deg/dust_scat/data/vla_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandKu_a100um = utils.horizontal_cut(
-        filename=prefix/'amax100um/18mm/0deg/dust_scat/data/vla_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    # amax 1000um. All four bands. 
-    band6_a1000um = utils.horizontal_cut(
-        filename=prefix/'amax1000um/1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    band3_a1000um = utils.horizontal_cut(
-        filename=prefix/'amax1000um/3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandQ_a1000um = utils.horizontal_cut(
-        filename=prefix/'amax1000um/7mm/0deg/dust_scat/data/vla_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    bandKu_a1000um = utils.horizontal_cut(
-        filename=prefix/'amax1000um/18mm/0deg/dust_scat/data/vla_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
+    def cut_sim(a, l, org='', test=False):
+        mat = Path(f"sgo/soot300K/{org}") if org != '' else Path("sg/")
+        #t = {'1.3mm': 'alma', '3mm': 'alma', '7mm': 'vla', '18mm': 'vla'}
+        t = {'1.3mm': 'alma', '3mm': 'alma', '9mm': 'synobs', '18mm': 'vla'}
 
-    # Add extra curves at Bands 6 & 3 for the case of carbon sublimation
-    prefix_subl = home/'phd/polaris/rhd_disk/evaporation_test/results/snap541' / \
-        'dust_emission/temp_eos/sgo/mix5/subl300K/'
+        filename = prefix/mat/f'amax{a}/{l}/0deg/scat/{t[l]}_I.fits'
 
-    band6_a10um_subl = utils.horizontal_cut(
-        filename=prefix_subl/'amax10um/1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    band3_a10um_subl = utils.horizontal_cut(
-        filename=prefix_subl/'amax10um/3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    band6_a100um_subl = utils.horizontal_cut(
-        filename=prefix_subl/'amax100um/1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
-    band3_a100um_subl = utils.horizontal_cut(
-        filename=prefix_subl/'amax100um/3mm/0deg/dust_scat/data/alma_I.fits', 
-        add_obs=False, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-        verbose=False,
-    )
+        if test:
+            filename = prefix/mat/f'amax{a}/{l}/0deg/scat/array_A/synobs_I.fits'
 
-    # Close all figures generated by the calls to horizontal_cut()
-    plt.close('all')
+        cut = utils.horizontal_cut(
+            filename = filename, 
+            add_obs=False, 
+            cut_along='max',
+            axis=0, 
+            return_data=True, 
+            show=False, 
+            verbose=False,
+        )
+        plt.close()
+        return cut
 
     # Generate the figure
     fig, p = plt.subplots(nrows=2, ncols=2, sharex=True, figsize=figsize)
 
     cmap = ['#1b9e77','#d95f02','#7570b3']
+    ls = {
+        '10org' : (0, (5, 1)),
+        '30org' : (0, (5, 4)),
+        '50org' : (0, (5, 7)),
+        '80org' : (0, (5, 10)),
+    }
+    pi = [p[0,0], p[0,1], p[1,0], p[1,1]]
 
-    # 1.3mm
-    p[0,0].plot(*band6_obs, ls='-', color='black', label='IRAS16293B')
-    p[0,0].plot(*band6_a10um, ls='-', color=cmap[0], label=r'$a_{\rm max}$=10$\mu$m')
-    p[0,0].plot(*band6_a100um, ls='-', color=cmap[1], label=r'$a_{\rm max}$=100$\mu$m')
-    p[0,0].plot(*band6_a1000um, ls='-', color=cmap[2], label=r'$a_{\rm max}$=1000$\mu$m')
-    p[0,0].plot(*band6_a10um_subl, ls=':', color=cmap[0], label=r'\noindent$a_{\rm max}$=10$\mu$m\\C-sublimation')
-    p[0,0].plot(*band6_a100um_subl, ls=':', color=cmap[1], label=r'\noindent$a_{\rm max}$=100$\mu$m\\C-sublimation')
-    p[0,0].annotate('1.3mm', xy=(0.75, 0.85), xycoords="axes fraction", fontsize=20)
+    # Plot per wavelength, per amax and per percentage of organics
+    #for i, lam in enumerate(['1.3mm', '3mm', '7mm', '18mm']):
+    for i, lam in enumerate(['1.3mm', '3mm', '9mm', '18mm']):
+        pi[i].plot(*cut_obs(lam=lam), ls='-', color='black', 
+            label='IRAS 16293B')
+        
+        # Plot extended array test at 7mm
+        for j, a in enumerate(['10um', '100um', '1000um']):
+            pi[i].plot(*cut_sim(a, lam), ls='-', color=cmap[j], 
+                label=f'{a.strip("um")}'+r'$\mu$m')
 
-    # 3mm
-    p[0,1].plot(*band3_obs, ls='-', color='black', label='IRAS16293B')
-    p[0,1].plot(*band3_a10um, ls='-', color=cmap[0], label=r'$a_{\rm max}$=10$\mu$m')
-    p[0,1].plot(*band3_a100um, ls='-', color=cmap[1], label=r'$a_{\rm max}$=100$\mu$m')
-    p[0,1].plot(*band3_a1000um, ls='-', color=cmap[2], label=r'$a_{\rm max}$=1000$\mu$m')
-    p[0,1].plot(*band3_a10um_subl, ls=':', color=cmap[0], label=r'\noindent$a_{\rm max}$=10$\mu$m\\C-sublimation')
-    p[0,1].plot(*band3_a100um_subl, ls=':', color=cmap[1], label=r'\noindent$a_{\rm max}$=100$\mu$m\\C-sublimation')
-    p[0,1].annotate('3mm', xy=(0.75, 0.85), xycoords="axes fraction", fontsize=20)
+            if lam == '7mm':
+                pi[i].plot(*cut_sim(a, lam, test=True), ls='--', color=cmap[j], 
+                    label=f'{a.strip("um")}'+r'$\mu$m (Ant. Array A)')
 
-    # 7mm
-    p[1,0].plot(*bandQ_obs, ls='-', color='black', label='IRAS16293B')
-    p[1,0].plot(*bandQ_a10um, ls='-', color=cmap[0], label=r'$a_{\rm max}$=10$\mu$m')
-    p[1,0].plot(*bandQ_a100um, ls='-', color=cmap[1], label=r'$a_{\rm max}$=100$\mu$m')
-    p[1,0].plot(*bandQ_a1000um, ls='-', color=cmap[2], label=r'$a_{\rm max}$=1000$\mu$m')
-    p[1,0].annotate('7mm', xy=(0.75, 0.85), xycoords="axes fraction", fontsize=20)
 
-    # 18mm 
-    p[1,1].plot(*bandKu_obs, ls='-', color='black', label='IRAS16293B')
-    p[1,1].plot(*bandKu_a10um, ls='-', color=cmap[0], label=r'$a_{\rm max}$=10$\mu$m')
-    p[1,1].plot(*bandKu_a100um, ls='-', color=cmap[1], label=r'$a_{\rm max}$=100$\mu$m')
-    p[1,1].plot(*bandKu_a1000um, ls='-', color=cmap[2], label=r'$a_{\rm max}$=1000$\mu$m')
-    p[1,1].annotate('18mm', xy=(0.75, 0.85), xycoords="axes fraction", fontsize=20)
-
-    # Add a scalebar for the sublimation zone
-    p[0,0].annotate('Carbon Sublimation', xy=(0, 100), ha='center')
-    p[0,1].annotate('Carbon Sublimation', xy=(0, 100), ha='center')
-    p[0,0].annotate('', xy=(-0.07, 80), xytext=(0.07, 80), 
-        arrowprops=dict(arrowstyle='|-|', ls='--', lw=1.0, mutation_scale=2.0))
-    p[0,1].annotate('', xy=(-0.07, 80), xytext=(0.07, 80), 
-        arrowprops=dict(arrowstyle='|-|', ls='--', lw=1.0, mutation_scale=2.0))
+            if sublimation:
+                for k, org in enumerate(['10org', '30org', '50org', '80org']):
+                    pi[i].plot(*cut_sim(a, lam, org), ls=ls[org], color=cmap[j],
+                        label=f'{org.strip("org")}\% organics' if j == 0 else None)
 
     # Customize the figure
-    p[0,0].legend(ncol=1, loc='upper left', fontsize=12)
-    p[0,1].legend(ncol=1, loc='upper left', fontsize=12)
-    p[1,0].legend(ncol=1, loc='upper left', fontsize=13)
-    p[1,1].legend(ncol=1, loc='upper left', fontsize=13)
+    #for i, lam in enumerate(['1.3mm', '3mm', '7mm', '18mm']):
+    for i, lam in enumerate(['1.3mm', '3mm', '9mm', '18mm']):
+        # Re-order the curve labels
+        handles, labels = plt.gca().get_legend_handles_labels()
+        order = [0, 1, 6, 7, 2, 3, 4, 5] if sublimation else range(4)
+        pi[i].legend([handles[i] for i in order], [labels[i] for i in order], 
+            ncol=1, loc='upper left', fontsize=12)
+
+        # Add a scalebar for the sootline
+        if sublimation:
+            pi[i].annotate('Soot Line', xy=(0, 50), ha='center')
+            pi[i].annotate('', xy=(-0.07, 30), xytext=(0.07, 30), 
+                arrowprops=dict(arrowstyle='|-|', ls='--', mutation_scale=2.0))
+
+        # Annotate the plot and set the label
+        pi[i].set_ylabel(r'$T_{\rm B}$ (K)')
+        pi[i].set_ylim(-10, 780)
+        pi[i].annotate(lam, xy=(0.75, 0.85), xycoords="axes fraction", fontsize=20)
+        pi[i].set_xlabel("Peak angular offset (arcseconds)")
+
     p[1,1].set_xlim(-0.33, 0.33)
-    p[0,0].set_ylim(-10, 780)
-    p[0,1].set_ylim(-10, 780)
-    p[1,0].set_ylim(-10, 780)
-    p[1,1].set_ylim(-10, 780)
     p[0,1].yaxis.tick_right()
     p[1,1].yaxis.tick_right()
     p[0,1].yaxis.set_label_position("right")
     p[1,1].yaxis.set_label_position("right")
-    p[0,0].set_ylabel(r'$T_{\rm B}$ (K)')
-    p[0,1].set_ylabel(r'$T_{\rm B}$ (K)')
-    p[1,0].set_ylabel(r'$T_{\rm B}$ (K)')
-    p[1,1].set_ylabel(r'$T_{\rm B}$ (K)')
-    p[1,0].set_xlabel("Peak angular offset (arcseconds)")
-    p[1,1].set_xlabel("Peak angular offset (arcseconds)")
 
     plt.subplots_adjust(hspace=0, wspace=0)
 
     return utils.plot_checkout(fig, show, savefig, path=plot_dir)
 
 
-@utils.elapsed_time
 def plot_spectral_indexes(show=True, savefig='', figsize=(14, 9)):
     """ Figure 4
     """
@@ -804,6 +612,8 @@ def plot_spectral_indexes(show=True, savefig='', figsize=(14, 9)):
         home/f'phd/observations/iras16293/sourceB_spectral_index_band3-6.fits',
         cmap='PuOr', 
         cblabel='Observed spectral index', 
+        vmin=1.7, 
+        vmax=3.5, 
         figsize=None, 
         stretch='linear',
         scalebar=scalebar,
@@ -813,8 +623,8 @@ def plot_spectral_indexes(show=True, savefig='', figsize=(14, 9)):
         verbose=False,
     )
     f2 = utils.spectral_index(
-        prefix2/f'1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        prefix2/f'3mm/0deg/dust_scat/data/alma_I_smoothed1.3mm.fits', 
+        prefix2/f'1.3mm/0deg/scat/alma_I.fits', 
+        prefix2/f'3mm/0deg/scat/alma_I_smoothed1.3mm.fits', 
         vmin=1.7, 
         vmax=3.5, 
         mask=0.006,
@@ -828,8 +638,8 @@ def plot_spectral_indexes(show=True, savefig='', figsize=(14, 9)):
         show=False,
     )
     f3 = utils.spectral_index(
-        prefix3/f'1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        prefix3/f'3mm/0deg/dust_scat/data/alma_I_smoothed1.3mm.fits', 
+        prefix3/f'1.3mm/0deg/scat/alma_I.fits', 
+        prefix3/f'3mm/0deg/scat/alma_I_smoothed1.3mm.fits', 
         vmin=1.7, 
         vmax=3.5, 
         mask=0.006,
@@ -843,8 +653,8 @@ def plot_spectral_indexes(show=True, savefig='', figsize=(14, 9)):
         show=False,
     )
     f4 = utils.spectral_index(
-        prefix4/f'1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        prefix4/f'3mm/0deg/dust_scat/data/alma_I_smoothed1.3mm.fits', 
+        prefix4/f'1.3mm/0deg/scat/alma_I.fits', 
+        prefix4/f'3mm/0deg/scat/alma_I_smoothed1.3mm.fits', 
         vmin=1.7, 
         vmax=3.5, 
         mask=0.006,
@@ -858,8 +668,8 @@ def plot_spectral_indexes(show=True, savefig='', figsize=(14, 9)):
         show=False,
     )
     f5 = utils.spectral_index(
-        prefix5/f'1.3mm/0deg/dust_scat/data/alma_I.fits', 
-        prefix5/f'3mm/0deg/dust_scat/data/alma_I_smoothed1.3mm.fits', 
+        prefix5/f'1.3mm/0deg/scat/alma_I.fits', 
+        prefix5/f'3mm/0deg/scat/alma_I_smoothed1.3mm.fits', 
         vmin=1.7, 
         vmax=3.5, 
         mask=0.006,
@@ -931,231 +741,8 @@ def plot_spectral_indexes(show=True, savefig='', figsize=(14, 9)):
     return utils.plot_checkout(fig, show, savefig=savefig, path=plot_dir)
 
 
-def plot_cut_spectral_index(show=True, savefig='', figsize=(8,6)):
-    """ Appendix figure.
-    """
-    
-    # Avoid pylab to open a new figure for every call to horizontal_cut()
-    plt.rcParams['interactive'] = False
-
-    # Set the path prefixes
-    prefix1 = home/'phd/observations/iras16293/'
-    prefix2 = home/'phd/polaris/rhd_disk/results/snap541/dust_emission/temp_eos/sg/amax100um/'
-    prefix3 = home/'phd/polaris/rhd_disk/evaporation_test/results/snap541' / \
-                    'dust_emission/temp_eos/sg/subl300K/amax100um/'
-    prefix4 = home/'phd/polaris/rhd_disk/evaporation_test/results/snap541' / \
-                    'dust_emission/temp_eos/sg/nosubl/amax100um/'
-    prefix5 = home/'phd/polaris/rhd_disk/evaporation_test/results/snap541' / \
-                    'dust_emission/temp_eos/sg/subl300K/amax100um/'
-
-    # Perform horizontal cuts to every spectral index map
-    obs = utils.horizontal_cut( 
-        filename=prefix1/'sourceB_spectral_index_band3-6.fits', 
-        lam='alpha', 
-        cut_along='center',
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a100um = utils.horizontal_cut( 
-        filename=prefix2/'spectral_index.fits', 
-        lam='alpha', 
-        cut_along='center',
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a100um_subl = utils.horizontal_cut( 
-        filename=prefix3/'spectral_index.fits', 
-        lam='alpha', 
-        cut_along='max',
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a100um_flip = utils.horizontal_cut( 
-        filename=prefix4/'spectral_index_flipped.fits', 
-        lam='alpha', 
-        cut_along='center',
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a100um_subl_flip = utils.horizontal_cut( 
-        filename=prefix5/'spectral_index_flipped.fits', 
-        lam='alpha', 
-        cut_along='center',
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-
-    # Close all previously generated figures
-    plt.close('all')
-    
-    # Initialize the figure 
-    fig = plt.figure(figsize=figsize)
-
-    plt.annotate('Horizontal cuts\nof\nspectral indexes', xy=(0.03, 0.80), 
-        xycoords='axes fraction', size=15)
-    plt.plot(*obs, color='black', label='IRAS16293B', ls='-.', lw=2)
-    plt.plot(*a100um, color=cmap[0], 
-        label=r'$a_{\rm max}$=100$\mu$m')
-    plt.plot(*a100um_flip, color=cmap[1], 
-        label=r'\noindent$a_{\rm max}$=100$\mu$m\\flipped')
-    plt.plot(*a100um_subl, color=cmap[2], 
-        label=r'\noindent$a_{\rm max}$=100$\mu$m\\sublimation')
-    plt.plot(*a100um_subl_flip, color=cmap[3], 
-        label=r'\noindent$a_{\rm max}$=100$\mu$m\\sublimation\\flipped')
-
-    plt.legend(ncol=1)
-    plt.xlim(-0.30, 0.30)
-    plt.ylim(1.5, 3.5)
-    plt.xlabel('Angular offset (arcseconds)')
-    plt.ylabel('Spectral index')
-
-    return utils.plot_checkout(fig, show, savefig=savefig, path=plot_dir)
-
-
-def plot_cut_sublimation(lam='1.3mm', show=True, savefig='', figsize=(8,6)):
-    """ Appendix figure.
-    """
-    
-    # Avoid pylab to open a new figure for every call to horizontal_cut()
-    plt.rcParams['interactive'] = False
-
-    # Set the path prefixes
-    prefix = home/'phd/polaris/rhd_disk/evaporation_test/results/snap541' / \
-                    'dust_emission/temp_eos/sg/nosubl'
-    prefix1 = home/'phd/polaris/rhd_disk/evaporation_test/results/snap541' / \
-                    'dust_emission/temp_eos/sg/subl300K/'
-
-    # Perform horizontal cuts to every map for flipped disk
-    obs = utils.horizontal_cut( 
-        filename=None, 
-        add_obs=True, 
-        lam=lam, 
-        cut_along='max',
-        axis=0, 
-        return_data=True, 
-        show=False, 
-    )
-    a100um_nosubl = utils.horizontal_cut( 
-        filename=prefix/f'amax100um/{lam}/180deg/dust_scat/data/alma_I.fits', 
-        lam=lam, 
-        cut_along='max',
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a100um = utils.horizontal_cut( 
-        filename=prefix1/f'amax100um/{lam}/180deg/dust_scat/data/alma_I.fits', 
-        lam=lam, 
-        cut_along='max',
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a200um = utils.horizontal_cut( 
-        filename=prefix1/f'amax200um/{lam}/180deg/dust_scat/data/alma_I.fits', 
-        lam=lam, 
-        cut_along='center',
-        align=False,
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a300um = utils.horizontal_cut( 
-        filename=prefix1/f'amax300um/{lam}/180deg/dust_scat/data/alma_I.fits', 
-        lam=lam, 
-        cut_along='center',
-        align=False,
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a400um = utils.horizontal_cut( 
-        filename=prefix1/f'amax400um/{lam}/180deg/dust_scat/data/alma_I.fits', 
-        lam=lam, 
-        cut_along='center',
-        align=False,
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a500um = utils.horizontal_cut( 
-        filename=prefix1/f'amax500um/{lam}/180deg/dust_scat/data/alma_I.fits', 
-        lam=lam, 
-        cut_along='center',
-        align=False,
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-    a1000um = utils.horizontal_cut( 
-        filename=prefix1/f'amax1000um/{lam}/180deg/dust_scat/data/alma_I.fits', 
-        lam=lam, 
-        cut_along='center',
-        align=False,
-        axis=0, 
-        add_obs=False, 
-        return_data=True, 
-        show=False, 
-    )
-
-
-    # Close all previously generated figures
-    plt.close('all')
-    
-    # Initialize the figure 
-    fig = plt.figure(figsize=figsize)
-
-    # 3rd col
-    cmap = ['#f0f9e8','#ccebc5','#a8ddb5','#7bccc4','#43a2ca','#0868ac']
-    # 6th col
-    cmap = ['#f6eff7','#d0d1e6','#a6bddb','#67a9cf','#1c9099','#016c59']
-    cmap = cmap[::-1]
-
-    plt.plot(*a1000um, color=cmap[5], 
-        label=r'\noindent$a_{\rm max}$=1000$\mu$m')
-    plt.plot(*a500um, color=cmap[4], 
-        label=r'\noindent$a_{\rm max}$=500$\mu$m')
-    plt.plot(*a400um, color=cmap[3], 
-        label=r'\noindent$a_{\rm max}$=400$\mu$m')
-    plt.plot(*a300um, color=cmap[2], 
-        label=r'\noindent$a_{\rm max}$=300$\mu$m')
-    plt.plot(*a200um, color=cmap[1], 
-        label=r'\noindent$a_{\rm max}$=200$\mu$m')
-    plt.plot(*a100um, color=cmap[0], 
-        label=r'\noindent$a_{\rm max}$=100$\mu$m')
-    plt.plot(*a100um_nosubl, color=cmap[0], ls='-.', lw=2, 
-        label=r'$a_{\rm max}$=100$\mu$m No subl.')
-    plt.plot(*obs, color='black', label='IRAS16293B', ls='-.', lw=2)
-
-    plt.annotate(lam, xy=(0.05, 0.9), xycoords='axes fraction', size=20) 
-
-    plt.legend(ncol=1, loc='upper right', fontsize=11)
-    plt.xlim(-0.30, 0.30)
-    plt.ylim(-20, 380 if lam=='1.3mm' else 710)
-    plt.xlabel('Angular offset (arcseconds)')
-    plt.ylabel(r'$T_{\rm B}$ (K)')
-
-    return utils.plot_checkout(fig, show, savefig=savefig, path=plot_dir)
-
-
 @utils.elapsed_time
-def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize=None):
+def plot_self_scattering_models(source='radmc3d', show=True, savefig='', figsize=None):
     """ Plot model images of polarization by self-scattering.
         Plot Stokes I, Q, U of models from POLARIS and synthetic observations
         from ALMA Band 3 & 6 and VLA Band Q.
@@ -1165,14 +752,10 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
     # Avoid pylab to open a new figure for every call to horizontal_cut()
     plt.rcParams['interactive'] = False
 
-    prefix = home/"phd/polaris/rhd_disk/evaporation_test/results/snap541/dust_scattering/"/\
-            "temp_eos/sgo/mix5/subl300K/amax100um/"
+    prefix = home/"phd/radmc3d/rhd_disk/results/dust_scattering/tgas/sg/amax100um/"
 
     # Set up the input source for filenames, plot grid and if clauses
-    if source in ['polaris', 'pol', 'model']:
-        polaris = True
-        source1mm = 'polaris'
-        source7mm = 'polaris'
+    if source == 'radmc3d':
         # 4x2 grid: (I, Q, U, Pf) x (1mm, 7 mm)
         figsize = (15, 9) if figsize is None else figsize
         x = [0.0, 0.25, 0.50, 0.75]
@@ -1188,17 +771,14 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         vmin_pf = 0
         vmax_pf = 0.1
         rescale_i = 1e6
-        rescale_q = 1e12
-        rescale_u = 1e12
+        rescale_q = 1
+        rescale_u = 1
         rescale_pf = 100
         cblabel_i = r'$\mu$Jy/pixel'
         cblabel_q = r'x$10^{-12}$ Jy/pixel'
         cblabel_u = r'x$10^{-12}$ Jy/pixel'
         cblabel_pf = r'Polarization fraction (\%)'
     else:
-        polaris = False
-        source1mm = 'alma'
-        source7mm = 'vla'
         # 3x2 grid: (I, Q, U) x (1mm, 7 mm)
         figsize = (11, 9) if figsize is None else figsize
         x = [0.02, 0.355, 0.69]
@@ -1228,9 +808,9 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
     fig = plt.figure(figsize=figsize)
 
     f1 = utils.plot_map(
-        prefix/f"1.3mm/0deg/data/{source1mm}_I.fits",
+        prefix/f"1.3mm/0deg/scat/{source}_I.fits",
         cmap=cmap_i, 
-        stretch='asinh' if polaris else 'linear', 
+        stretch='asinh' if source == 'radmc3d' else 'linear', 
         scalebar=scalebar, 
         bright_temp=False, 
         vmin=vmin_i, 
@@ -1242,7 +822,7 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         subplot=[x[0], y[0], dx, dy], 
     )
     f2 = utils.plot_map(
-        prefix/f"1.3mm/0deg/data/{source1mm}_Q.fits",
+        prefix/f"1.3mm/0deg/scat/{source}_Q.fits",
         cmap=cmap_q, 
         stretch='linear', 
         scalebar=scalebar, 
@@ -1256,7 +836,7 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         subplot=[x[1], y[0], dx, dy], 
     )
     f3 = utils.plot_map(
-        prefix/f"1.3mm/0deg/data/{source1mm}_U.fits",
+        prefix/f"1.3mm/0deg/scat/{source}_U.fits",
         cmap=cmap_q, 
         stretch='linear', 
         scalebar=scalebar, 
@@ -1269,9 +849,9 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         figsize=None,
         subplot=[x[2], y[0], dx, dy], 
     )
-    if polaris:
+    if source == 'radmc3d':
         f4 = utils.plot_map(
-            prefix/f"1.3mm/0deg/data/{source1mm}_pfrac.fits",
+            prefix/f"1.3mm/0deg/scat/{source}_pf.fits",
             cmap=cmap_pf, 
             stretch='asinh', 
             scalebar=None, 
@@ -1285,9 +865,9 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
             subplot=[x[3], y[0], dx, dy], 
         )
     f5 = utils.plot_map(
-        prefix/f"7mm/0deg/data/{source7mm}_I.fits",
+        prefix/f"7mm/0deg/scat/{source}_I.fits",
         cmap=cmap_i, 
-        stretch='asinh' if polaris else 'linear', 
+        stretch='asinh' if source == 'radmc3d' else 'linear', 
         scalebar=scalebar, 
         bright_temp=False, 
         vmin=vmin_i, 
@@ -1299,7 +879,7 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         subplot=[x[0], y[1], dx, dy], 
     )
     f6 = utils.plot_map(
-        prefix/f"7mm/0deg/data/{source7mm}_Q.fits",
+        prefix/f"7mm/0deg/scat/{source}_Q.fits",
         cmap=cmap_q, 
         stretch='linear', 
         scalebar=scalebar, 
@@ -1313,7 +893,7 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         subplot=[x[1], y[1], dx, dy], 
     )
     f7 = utils.plot_map(
-        prefix/f"7mm/0deg/data/{source7mm}_U.fits",
+        prefix/f"7mm/0deg/scat/{source}_U.fits",
         cmap=cmap_q, 
         stretch='linear', 
         scalebar=scalebar, 
@@ -1326,9 +906,9 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         figsize=None,
         subplot=[x[2], y[1], dx, dy], 
     )
-    if polaris:
+    if source == 'radmc3d':
         f8 = utils.plot_map(
-            prefix/f"7mm/0deg/data/{source7mm}_pfrac.fits",
+            prefix/f"7mm/0deg/scat/{source}_pf.fits",
             cmap=cmap_pf, 
             stretch='asinh', 
             scalebar=None, 
@@ -1343,7 +923,7 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         )
 
     # Label each panel
-    bbox = {'fc':'white','ec':'white', 'alpha':0.8 if polaris else 0}
+    bbox = {'fc':'white','ec':'white', 'alpha':0.8 if source=='radmc3d' else 0}
 
     f1.add_label(0.05, 0.88, 'Stokes I\n1.3mm', relative=True, layer='I', 
         color='white', size=21, ha='left')
@@ -1363,14 +943,14 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
     f7.add_label(0.05, 0.88, 'Stokes U', relative=True, layer='U', size=21, 
         color='black', ha='left', bbox=bbox)
 
-    f1.add_label(0.88, 0.92, f"{'Model' if polaris else 'ALMA'}", size=21,  
+    f1.add_label(0.88, 0.92, f"{'Model' if source=='radmc3d' else 'ALMA'}", size=21,
         relative=True, layer='band6', color='white', ha='right')
 
-    f5.add_label(0.88, 0.92, f"{'Model' if polaris else 'VLA'}", size=21, 
+    f5.add_label(0.88, 0.92, f"{'Model' if source=='radmc3d' else 'VLA'}", size=21, 
         relative=True, layer='bandq', color='white', ha='right')
 
 
-    if polaris:
+    if source == "radmc3d":
         f4.set_nan_color('black')
         f8.set_nan_color('black')
         f2.scalebar.set_color('none')
@@ -1392,16 +972,16 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         f7.scalebar.set_color('black')
     
     # Add polarization vector to the Pol. fraction maps
-    if polaris:
+    if source == 'radmc3d':
         # Create a dummy file filled with Pf=1 to even out the vector lengths
         pf, pf_h = fits.getdata(
-            str(prefix/f"1.3mm/0deg/data/{source}_pfrac.fits"), header=True)
+            str(prefix/f"1.3mm/0deg/scat/{source}_pf.fits"), header=True)
 
         utils.write_fits('pfrac_1.fits', np.ones(pf.shape), pf_h, overwrite=True)
 
         f4.show_vectors(
             "pfrac_1.fits", 
-            str(prefix/f"1.3mm/0deg/data/{source}_pangle.fits"),
+            str(prefix/f"1.3mm/0deg/scat/{source}_pa.fits"),
             step=16,
             scale=10, 
             rotate = 0 if source == 'obs' else 90, 
@@ -1411,7 +991,7 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         )
         f8.show_vectors(
             "pfrac_1.fits", 
-            str(prefix/f"7mm/0deg/data/{source}_pangle.fits"),
+            str(prefix/f"7mm/0deg/scat/{source}_pa.fits"),
             step=12,
             scale=8, 
             rotate = 0 if source == 'obs' else 90, 
@@ -1423,7 +1003,7 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
         os.remove("pfrac_1.fits")
 
     # Hide labels and ticks for all panels
-    for f in [f1,f2,f3,f4,f5,f6,f7,f8] if polaris else [f1,f2,f3,f5,f6,f7]:
+    for f in [f1,f2,f3,f4,f5,f6,f7,f8] if source=='radmc3d' else [f1,f2,f3,f5,f6,f7]:
         f.tick_labels.hide()
         f.axis_labels.hide()
 
@@ -1434,22 +1014,22 @@ def plot_self_scattering_models(source='polaris', show=True, savefig='', figsize
     fig.f5 = f5
     fig.f6 = f6
     fig.f7 = f7
-    if polaris:
+    if source == 'radmc3d':
         fig.f4 = f4
         fig.f8 = f8
 
     return utils.plot_checkout(fig, show, savefig=savefig, path=plot_dir)
 
 
-def plot_grain_growth_soot_line(temp='300K', show=True, savefig=None, figsize=(5, 4)):
+def plot_grain_growth_soot_line(temp=300, show=True, savefig=None, figsize=(5, 4)):
     """Appendix figure (3 panels) for the case of grain growth within sootline:
         - 1.3 mm continuum map (APLPy)
         - 3 mm continuum map (APLPy)
         - Horizontal cuts for obs and model at both wavelengths (matplotlib)
     """
 
-    path = home/"phd/polaris/rhd_disk/evaporation_test/results/snap541/dust_emission/"\
-        /f"temp_eos/sgo/mix5/subl{temp}/amax1000um"
+    path = home/'phd/radmc3d/rhd_disk/results/dust_emission/tgas/sgo/'/\
+        f'soot{temp}K/dgrowth/50org/amax100um' 
 
     # Generate the horizontal cuts of brightness temp.
     band6_obs = utils.horizontal_cut(
@@ -1467,7 +1047,7 @@ def plot_grain_growth_soot_line(temp='300K', show=True, savefig=None, figsize=(5
         verbose=False,
     )
     band6_cut = utils.horizontal_cut(
-        filename=path/'1.3mm/0deg/dust_scat/data/alma_I.fits', 
+        filename=path/'1.3mm/0deg/scat/synobs_I.fits', 
         align=False, 
         add_obs=False, 
         show=False, 
@@ -1475,7 +1055,7 @@ def plot_grain_growth_soot_line(temp='300K', show=True, savefig=None, figsize=(5
         return_data=True, 
     )
     band3_cut = utils.horizontal_cut(
-        filename=path/'3mm/0deg/dust_scat/data/alma_I.fits', 
+        filename=path/'3mm/0deg/scat/synobs_I.fits', 
         align=False, 
         add_obs=False, 
         show=False, 
@@ -1487,9 +1067,11 @@ def plot_grain_growth_soot_line(temp='300K', show=True, savefig=None, figsize=(5
     plt.close('all') 
 
     # First panel
-    f1 = utils.plot_map(path/'1.3mm/0deg/dust_scat/data/alma_I.fits')
+    f1 = utils.plot_map(path/'1.3mm/0deg/scat/synobs_I.fits', bright_temp=True)
     f1.add_label(0.05, 0.91, r'{\bf 1.3mm}', relative=True, layer='1mm', 
         color='tab:red', size=22, ha='left')
+    f1.add_label(0.95, 0.91, f'Sootline at \n{temp} K', relative=True, 
+        layer='sootline', color='white', size=20, ha='right')
     f1.axis_labels.set_xtext('')
     f1.tick_labels.hide_x()
     f1.tick_labels.hide_y()
@@ -1498,25 +1080,17 @@ def plot_grain_growth_soot_line(temp='300K', show=True, savefig=None, figsize=(5
     f1.colorbar.set_location('bottom')
 
     # Second panel
-    f2 = utils.plot_map(path/'3mm/0deg/dust_scat/data/alma_I.fits')
+    f2 = utils.plot_map(path/'3mm/0deg/scat/synobs_I.fits', bright_temp=True)
     f2.add_label(0.05, 0.91, r'{\bf 3mm}', relative=True, layer='3mm', 
         color='tab:green', size=22, ha='left')
+    f2.add_label(0.95, 0.91, f'Sootline at \n{temp} K', relative=True, 
+        layer='sootline', color='white', size=22, ha='right')
     f2.axis_labels.set_xtext('')
     f2.tick_labels.hide_x()
     f2.tick_labels.hide_y()
     f2.axis_labels.hide_x()
     f2.axis_labels.hide_y()
     f2.colorbar.set_location('bottom')
-    
-    # Overplot the soot-lines
-    soot_line = np.flipud(np.transpose(fits.getdata(
-        path/'1.3mm/0deg/dust_scat/data/input_midplane.fits.gz')[-1][0]))
-    f1.show_contour(soot_line, levels=[2], colors='white')
-    f2.show_contour(soot_line, levels=[2], colors='white')
-    f1.add_label(0.97, 0.88, f'Soot-line at\n{temp}', relative=True,  
-        color='white', size=20, ha='right')
-    f2.add_label(0.97, 0.88, f'Soot-line at\n{temp}', relative=True,  
-        color='white', size=20, ha='right')
     
     # Third panel
     fig = plt.figure(figsize=figsize)
@@ -1545,8 +1119,8 @@ def plot_grain_growth_soot_line(temp='300K', show=True, savefig=None, figsize=(5
     plt.tight_layout()
 
     # Save panels in separate figures
-    f1.savefig(plot_dir/f'grain-growth-soot-line-{temp}_1.pdf')
-    f2.savefig(plot_dir/f'grain-growth-soot-line-{temp}_2.pdf')
-    plt.savefig(plot_dir/f'grain-growth-soot-line-{temp}_3.pdf')
+#    f1.savefig(plot_dir/f'grain-growth-soot-line-{temp}_1.pdf')
+#    f2.savefig(plot_dir/f'grain-growth-soot-line-{temp}_2.pdf')
+#    plt.savefig(plot_dir/f'grain-growth-soot-line-{temp}_3.pdf')
 
     return utils.plot_checkout(fig, show, savefig=savefig, path=plot_dir)

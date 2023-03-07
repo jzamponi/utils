@@ -51,6 +51,8 @@ def plot_observations(show=True, savefig=None, figsize=(17.5,6)):
     f3 = utils.plot_map(
         filename = home/f'phd/observations/iras16293/sourceB_spectral_index_band3-6.fits', 
         cmap='PuOr', 
+        vmin=1.7,
+        vmax=3.7,
         cblabel='Spectral index', 
         figsize=None, 
         stretch='linear',
