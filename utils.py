@@ -32,39 +32,61 @@ class color:
     it = "\033[3m"
     ul = '\033[4m'
 
+
 class Observation:
     """ Contains data from real observations. """
 
     from collections import namedtuple
 
-    def __init__(self, lam, source="iras16293"):
+    def __init__(self, lam=None, source="iras16293"):
         self.source = source.lower()
 
-        if lam == '1.3mm': 
+        if lam is None:
+            self.band = ''
+            self.filename = ''
+            self.observer = ''
+        elif lam == '1.3mm': 
             self.band = 'band6'
             self.filename = 'sourceB_1.3mm.fits'
+            self.observer = 'Oya'
+        elif lam == '1.3mm-pol': 
+            self.band = 'band6'
+            self.filename = 'sadavoy/stokesI_zoom.fits'
+            self.observer = 'Sadavoy'
         elif lam == '3mm': 
             self.band = 'band3'
             self.filename = 'sourceB_3mm.fits'
+            self.observer = 'GDipierro'
         elif lam == '7mm': 
             self.band = 'bandQ'
             self.filename = 'stokes_I_zoom.fits'
+            self.observer = 'Hauyu Liu'
         elif lam == '9mm': 
             self.band = 'bandKa'
             self.filename = 'stokes_I_zoom.fits'
+            self.observer = 'Zamponi'
         elif lam == '18mm': 
             self.band = 'bandKu'
             self.filename = 'stokes_I_zoom_rob0.fits'
+            self.observer = 'Ko'
         elif lam == 'alpha':
             self.band = ''
             self.filename = 'sourceB_spectral_index_band3-6.fits'
         else:
             raise ValueError(f'No observation available for lam = {lam}')
 
-        self.data, self.header = fits.getdata(
-            home/"phd/observations"/self.source/self.band/self.filename, 
-            header=True
-        )
+        
+        if lam is not None:
+            self.data, self.header = fits.getdata(
+                home/"phd/observations"/self.source/self.band/self.filename, 
+                header=True
+            )
+        else:
+            self.data = np.zeros((300, 300))
+
+        self.distance = 141 * u.pc
+        self.pm_ra = -11.8 * u.mas/u.yr
+        self.pm_dec = -19.7 * u.mas/u.yr
         
     def rescale(self, factor):
         self.data = factor * self.data
@@ -115,7 +137,7 @@ class Bfield:
 def print_(string, verbose=True, bold=False, red=False, fname=None, blue=False, 
     ul=False, *args, **kwargs):
 
-    # Get the name of the calling function by tracing one level up in the stack
+    # Get the name of the calling function tracing one level up the stack
     fname = sys._getframe(1).f_code.co_name if fname is None else fname
 
     # Check if verbosity state is defined as a global variable
@@ -139,6 +161,12 @@ def print_(string, verbose=True, bold=False, red=False, fname=None, blue=False,
         else:
             print(f"[{fname}] {string}", flush=True, 
                 *args, **kwargs)
+
+
+def not_implemented(msg=''): 
+    raise NotImplementedError(
+        f"{color.blue}This feature is not yet implemented. " +\
+        f"{color.it}{msg}{color.none}")
 
 
 def write_fits(filename, data, header=None, overwrite=True, verbose=False):
@@ -958,7 +986,7 @@ def convert_opacity_file(
     
 
 def radmc3d_casafits(fitsfile='radmc3d_I.fits', radmc3dimage='image.out',
-        stokes='I', dpc=141, verbose=False):
+        stokes='I', dpc=141, tau=False, verbose=False):
     """ Read in an image.out file created by RADMC3D and generate a
         FITS file with a CASA-compatible header, ready for a 
         synthetic observation.
@@ -984,14 +1012,15 @@ def radmc3d_casafits(fitsfile='radmc3d_I.fits', radmc3dimage='image.out',
     # Make a squared map
     img = img.reshape(nx, ny)
 
-    # Rescale to Jy/sr
-    img = img * (
-        u.erg * u.s ** -1 * u.cm ** -2 * u.Hz ** -1 * u.sr ** -1).to(
-        u.Jy * u.sr ** -1
-    )
+    if not tau:
+        # Rescale to Jy/sr
+        img = img * (
+            u.erg * u.s ** -1 * u.cm ** -2 * u.Hz ** -1 * u.sr ** -1).to(
+            u.Jy * u.sr ** -1
+        )
 
-    # Convert sr into pixels (Jy/sr --> Jy/pixel)
-    img = img * (pixsize_x**2 / (dpc*u.pc.to(u.cm))**2)
+        # Convert sr into pixels (Jy/sr --> Jy/pixel)
+        img = img * (pixsize_x**2 / (dpc*u.pc.to(u.cm))**2)
 
     # Convert physical pixel size to angular size
     cdelt1 = (pixsize_x / (dpc*u.pc.to(u.cm))) * u.rad.to(u.deg)
@@ -1011,13 +1040,18 @@ def radmc3d_casafits(fitsfile='radmc3d_I.fits', radmc3dimage='image.out',
         'CUNIT2': f'deg',
         'CTYPE2': f'DEC--SIN',
         'RESTFRQ': c.c.cgs.value / (lam*u.micron.to(u.cm)),
-        'BUNIT': 'Jy/pixel',
-        'BTYPE': 'Intensity', 
+        'BUNIT': 'Jy/pixel' if not tau else '',
+        'BTYPE': 'Intensity' if not tau else 'Op. Depth', 
         'BZERO': 1.0, 
         'BSCALE': 'BSCALE', 
         'LONPOLE': 180.0, 
         'DISTANCE': f'{dpc}pc',
     })
+
+    # Change the default output name when calculating optical depth
+    if tau and fitsfile == 'radmc3d_I.fits':
+        fitsfile = 'radmc3d_tau.fits'
+
     write_fits(fitsfile, img, header, True, verbose)
 
 
@@ -1343,78 +1377,145 @@ def add_comment(filename, comment):
     write_fits(filename, data=data, header=header, overwrite=True)
 
 
-def edit_header(filename, key, value, verbose=True):
+def edit_header(filename, key, value=None, verbose=True):
     """
-    Read in a fits file and change the value of a given keyword.
+    Read in a fits file and change the value of a set of keywords.
     """
     data, header = fits.getdata(filename, header=True)
 
-    # Check if the key is already in the header
-    value_ = header.get(key, default=None)
-
-    if value_ is None:
-        print_(f"Adding keyword {key} = {value}", verbose=verbose)
-        header[key] = value
-
-    elif value == 'del' and value_ is not None:
-        print_(f'Deleting from header: {key} = {value_}', verbose=verbose)
-        del header[key]
-
+    # If key is dictionary, update the header and write fits only once
+    if isinstance(key, (dict, fits.Header)):
+        print_(f"Updating header with: {key}", verbose)
+        header.update(key) 
+        
     else:
-        print_(f"Keyword {key} already exists.", verbose=verbose)
-        print_(f"Updating from {value_} to {value}.", verbose=verbose)
-        header[key] = value
+        # Check if the key is already in the header
+        curval = header.get(key, default=None)
 
-    write_fits(filename, data=data, header=header, overwrite=True, verbose=verbose)
+        if curval is None:
+            print_(f"Adding keyword {key} = {value}", verbose=verbose)
+            header[key] = value
+
+        elif value in ['del', 'pop'] and curval is not None:
+            print_(f'Deleting from header: {key} = {curval}', verbose=verbose)
+            header.pop(key, None)
+
+        else:
+            print_(f"Keyword {key} already exists.", verbose=verbose)
+            print_(f"Updating from {curval} to {value}.", verbose=verbose)
+            header[key] = value
+
+    write_fits(
+        filename, data=data, header=header, overwrite=True, verbose=verbose)
 
 
-def fix_header_axes(file):
-    """ Removes a third axis when NAXIS is 2, to avoid APLPy errors """
+def drop_deg_axes(file, outfile=None):
+    """ Removes third and fourth axis if degenerate """
 
     if type(file) == fits.Header:
         header = file
-        for i in ['3', '4']:
+    else:
+        data, header = fits.getdata(file, header=True)
 
-            if f'CDELT{i}' in header and \
-                (header['NAXIS'] == 2 or data.ndim == 2):
-                del header[f'CDELT{i}']
-                del header[f'CRVAL{i}']
-                del header[f'CUNIT{i}']
-                del header[f'CTYPE{i}']
-                del header[f'CRPIX{i}']
+    # Remove degenerate axes on the header
+    for i in [3, 4]:
 
-            if 'PC3_3' in header and \
-                (header['NAXIS'] == 2 or data.ndim == 2):
-                del header[f'PC3_1']
-                del header[f'PC3_2']
-                del header[f'PC1_3']
-                del header[f'PC2_3']
-                del header[f'PC3_3']
+        if f'CDELT{i}' in header and header[f'NAXIS{i}'] == 1:
+
+            header['NAXIS'] = 2
+            header.pop(f'NAXIS{i}')
+            header.pop(f'CDELT{i}')
+            header.pop(f'CRVAL{i}')
+            header.pop(f'CUNIT{i}')
+            header.pop(f'CTYPE{i}')
+            header.pop(f'CRPIX{i}')
+
+            if f'PC{i}_{i}' in header:
+                for j in range(1, i+1):
+                    try:
+                        header.pop(f'PC{i}_{j}')
+                        header.pop(f'PC{j}_{i}')
+                    except Exception as e:
+                        print_(e, red=True)
+
+    # Drop degenerate axes on the data too
+    data = np.squeeze(data)
+
+    if type(file) == fits.Header: 
+        return header 
+    else:
+        write_fits(outfile if outfile is not None else file, 
+            data, header, overwrite=True, verbose=True)
+
+
+def correct_by_proper_motion(
+        old_obs, 
+        new_obs, 
+        pm_ra = None,
+        pm_dec = None, 
+        distance = None,
+        source = None,
+        outfile = None, 
+        overwrite = True,
+        verbose = True,
+    ):
+    """ 
+        Shifts the coordinate center of a FITS image using a source's 
+        proper motion velocity. It reads the coordinate center from 
+        a FITS file (old) and update it the obstime of a reference FITS 
+        image (new).  
+        
+        Proper motions pm_ra and pm_dec, and distance, can optionally be 
+        given (as astropy Quantity objects, example: pm_a = 10 * u.mas/u.yr). 
+
+        If 'source' is given, all values are read from a source defined within 
+        the Observation class.  
+
+        The data from old_obs is copied untouched, only the header is modified.
+    """
+
+    from astropy.time import Time
+    from astropy.coordinates import SkyCoord
+
+    old_data, old_hdr = fits.getdata(old_obs, header=True)
+
+    new_hdr = fits.getheader(new_obs)
+    
+    if source is not None:
+        source = Observation(source=source)
+        pm_ra = source.pm_ra
+        pm_dec = source.pm_dec
+        distance = source.distance
+
+    old_sc = SkyCoord(
+        ra = old_hdr['CRVAL1'] * u.deg, 
+        dec = old_hdr['CRVAL2'] * u.deg,
+        pm_ra_cosdec = pm_ra,
+        pm_dec =  pm_dec,
+        distance = distance,
+        obstime = Time(old_hdr['DATE-OBS']),
+    )
+    
+    new_sc = old_sc.apply_space_motion(
+        new_obstime = Time(new_hdr['DATE-OBS'])
+    )
+
+    ra_new = new_sc.ra.value
+    dec_new = new_sc.dec.value
+    
+    outfile = old_obs if outfile is None and overwrite else outfile
+
+    if outfile is not None:
+        old_hdr['CRVAL1'] = ra_new
+        old_hdr['CRVAL2'] = dec_new
+        write_fits(outfile, old_data, old_hdr, overwrite, verbose)
 
     else:
-        data = fits.getdata(file, header=True)
-
-        # Clean extra keywords from the header to avoid APLPy errors 
-        for i in ['3', '4']:
-
-            if f'CDELT{i}' in header and \
-                (header['NAXIS'] == 2 or data.ndim == 2):
-                edit_header(file, f'CDELT{i}', 'del', False)
-                edit_header(file, f'CRVAL{i}', 'del', False)
-                edit_header(file, f'CUNIT{i}', 'del', False)
-                edit_header(file, f'CTYPE{i}', 'del', False)
-                edit_header(file, f'CRPIX{i}', 'del', False)
-
-            if 'PC3_3' in header and \
-                (header['NAXIS'] == 2 or data.ndim == 2):
-                edit_header(file, f'PC3_1', 'del', False)
-                edit_header(file, f'PC3_2', 'del', False)
-                edit_header(file, f'PC1_3', 'del', False)
-                edit_header(file, f'PC2_3', 'del', False)
-                edit_header(file, f'PC3_3', 'del', False)
+        edit_header(old_obs, key='CRVAL1', value=ra_new, verbose=verbose)
+        edit_header(old_obs, key='CRVAL2', value=dec_new, verbose=verbose)
 
 
-def dropdeg(fig, dropaxis=2):
+def dropdeg_aplpy(fig, dropaxis=2):
     """
     Removes the degenerated dimensions in APLpy 2.X.X.
     The input must be an object returned by plot_map() or aplpy.FITSFigure().
@@ -1423,6 +1524,33 @@ def dropdeg(fig, dropaxis=2):
     temp_wcs = temp_wcs.dropaxis(dropaxis)
     fig._wcs = temp_wcs
 
+
+def add_beam(ax, bmaj, bmin=None, bpa=0):
+    """
+    Add the beam to a map by drawing an Ellipse on the given figure plot
+    
+    ax: Matplotlib Axes object
+    bmaj: Major axis of the beam in arcseconds
+    bmin: Minor axis of the beam in arcseconds
+    bpa: Beam inclination angle in degrees
+
+    If bmin is not given, circular beam is assumed.
+
+    """
+    
+    from matplotlib.patches import Ellipse
+
+    ax.add_patch(Ellipse(
+        xy=(int(0.9 * ax.axis()[2]), int(0.9 * ax.axis()[2])),
+        width=bmaj, 
+        height=bmin if bmin is not None else bmaj, 
+        angle=bpa, 
+        edgecolor='white', 
+        fc='none', 
+        lw=2, 
+        zorder=5,
+    ))
+    
 
 @elapsed_time
 def plot_map(
@@ -1505,6 +1633,7 @@ def plot_map(
         [rot90, transpose, flipud, fliplr, rescale !=1, bright_temp]
     ):
         print_(f'Data has been modified. Writting and plotting {tempfile}')
+        # hdr = drop_deg_axes(hdr)
         write_fits(tempfile, data.squeeze(), hdr, True, False)
         filename = tempfile
 
@@ -1567,9 +1696,7 @@ def plot_map(
     fig.ticks.set_minor_frequency(5)
 
     # Hide ticks and labels if FITS file is not a real obs.
-    if "alma" not in str(filename) or "vla" not in str(filename):
-        print_(f'File: {filename}. Hiding axis ticks and labels', verbose)
-        fig.axis_labels.hide()
+    fig.axis_labels.hide()
 
     # Beam
     if 'BMAJ' in hdr and 'BMIN' in hdr and 'BPA' in hdr:
@@ -1673,7 +1800,7 @@ def polarization_map(
     rms_I=None, 
     rms_Q=None, 
     bright_temp=False, 
-    rescale=None,
+    rescale=1,
     savefig=None,
     show=True,
     block=False, 
@@ -1717,109 +1844,19 @@ def polarization_map(
             tau = data[4]
         except:
             tau = np.zeros(I.shape)
-
-        # Add thermal flux to the scattered flux.
-        # If add_thermal is a path, then read the flux from file
-        if isinstance(add_thermal, (str,PosixPath)):
-            try:
-                I_th = fits.getdata(add_thermal)
-                if 'polaris_detector' in add_thermal:
-                    I_th = I_th[0][0]
-            except OSError:
-                raise FileNotFoundError(
-                    f"File with thermal flux does not exist.\n" + f"File: {add_thermal}"
-                )
-
-        # If add_thermal is True, assume the path to scattered flux file is similarly structured 
-        elif add_thermal:
-            if "thermal emission" in hdr.get("ETYPE", ""):
-                print_("You are adding thermal flux to the thermal flux. Not gonna happen.", bold=True)
-                I_th = np.zeros(I.shape)
-
-            elif "scattered emission" in hdr.get("ETYPE", ""):
-                print_("Adding thermal flux to the self-scattered flux.", bold=True)
-
-                if 'dust_scattering' in pwd:
-                    thermal_file = pwd.replace("dust_scattering", "dust_emission")
-                    thermal_file = thermal_file.replace("data", "dust_scat/data")
-                    print_(f'pwd: {pwd}', verbose=True, bold=True)
-                elif 'dust_mc' in pwd:
-                    thermal_file = pwd.replace("dust_mc", "dust_th")
-
-                print_(f"File: {thermal_file + '/' + filename}", bold=True)
-                try:
-                    I_th = fits.getdata(thermal_file + "/" + filename)[0][0]
-                except OSError:
-                    raise FileNotFoundError(
-                        f'File with thermal flux does not exist.\n\
-                                            File: {thermal_file+"/"+filename}'
-                    )
-        # If not provided, set to zero
-        else:
-            I_th = np.zeros(I.shape)
-
-        # Add self-scattered emission to the thermal emission if required
-        if isinstance(add_scattered, (str,PosixPath)):
-            try:
-                I_ss = fits.getdata(add_scattered)
-            except OSError:
-                raise FileNotFoundError(
-                    f"File with thermal flux does not exist.\n" + \
-                    "File: {add_thermal}"
-                )
-
-        # If add_thermal is True, assume the path to scattered flux file is 
-        # similarly structured 
-        elif add_scattered:
-            if "scattered emission" in hdr.get("ETYPE", ""):
-                print_("You are adding scattered flux to the scattered flux. "+\
-                    "Not gonna happen.", bold=True)
-                I_ss = np.zeros(I.shape)
-
-            elif "thermal emission" in hdr.get("ETYPE", ""):
-                print_("Adding scattered flux to the thermal flux.", bold=True)
-
-                try:
-                    if os.path.isfile(f'{pwd}/../dust_scat/data/' + 
-                        'polaris_detector_nr0001.fits.gz'):
-                        # Get the full flux from results of CMD_DUST_EMISSION incl. scat.
-                            I_ss = fits.getdata(f'{pwd}/../dust_scat/data/' +
-                             'polaris_detector_nr0001.fits.gz')[0][0]
-                            # Remove thermal flux, since this file has both.
-                            I_ss = I_ss - I
-                    else:
-                        # Look for it in results from CMD_DUST_SCATTERING mode 
-                        if 'dust_alignment' in pwd:
-                            scattered_file = pwd.replace("dust_alignment", "dust_scattering")
-                            scattered_file = scattered_file.replace("pa/", "")
-                        elif 'dust_emission' in pwd:
-                            scattered_file = pwd.replace("dust_emission", "dust_scattering")
-                        elif 'dust_mc' in pwd:
-                            scattered_file = pwd.replace("dust_mc", "dust_th")
-
-                        print_(f"File: {scattered_file + '/' + filename}", bold=True)
-                        I_ss = fits.getdata(scattered_file + "/" + filename)[0][0]
-                except OSError:
-                    raise FileNotFoundError(
-                        f'File with scattered flux does not exist.\n\
-                         File: {scattered_file+"/"+filename}')
-
-        # If not provided, set scattered flux to zero
-        else:
-            I_ss = np.zeros(I.shape)
-
-        # Add all sources of flux: thermal and scattered emission
-        I = I + I_th + I_ss
-
     else:
         # Assume the name of the source files for I, Q and U is given manually
         source = 'obs'
 
         print_('Reading files from an external source ...', True)
-        hdr = fits.getheader('obs_I.fits' if stokes_I is None else stokes_I)
-        I = fits.getdata('obs_I.fits' if stokes_I is None else stokes_I).squeeze()
-        Q = fits.getdata('obs_Q.fits' if stokes_Q is None else stokes_Q).squeeze()
-        U = fits.getdata('obs_U.fits' if stokes_U is None else stokes_U).squeeze()
+        hdr = fits.getheader(
+            'obs_I.fits' if stokes_I is None else stokes_I)
+        I = fits.getdata(
+            'obs_I.fits' if stokes_I is None else stokes_I).squeeze()
+        Q = fits.getdata(
+            'obs_Q.fits' if stokes_Q is None else stokes_Q).squeeze()
+        U = fits.getdata(
+            'obs_U.fits' if stokes_U is None else stokes_U).squeeze()
         V = np.zeros(U.shape)
         tau = np.zeros(I.shape)
 
@@ -2095,11 +2132,11 @@ def spectral_index(
                 **kwargs
             )
             # Plot the beam ony if it is an ALMA simulated observation
-            if all(['alma' in [lam1_, lam2_]]) or all(['vla' in [lam1_, lam2_]]): 
-                fig.show_contour(specindex, colors="black", levels=[2])
-                fig.add_beam(facecolor='white', edgecolor='black', linewidth=3)
-            else:
-                fig.show_contour(specindex, colors="black", levels=[2])
+#            if all(['alma' in [lam1_, lam2_]]) or all(['vla' in [lam1_, lam2_]]): 
+#                fig.show_contour(specindex, colors="black", levels=[2])
+#                fig.add_beam(facecolor='white', edgecolor='black', linewidth=3)
+#            else:
+#                fig.show_contour(specindex, colors="black", levels=[2])
 
             # Delete the temporal file after the plot is done, unless savefile is True
             if savefile in [False, None, '']: 
@@ -2121,7 +2158,7 @@ def spectral_index(
     return plot_checkout(fig, show, savefig) if return_fig else alpha
 
 
-def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False):
+def Tb(data, freq=0, bmin=0, bmaj=0, outfile=None, overwrite=False, verbose=False):
     """
     Convert intensities [Jy/beam] into brightness temperatures [K].
     Frequencies must be in GHz and bmin and bmaj in arcseconds.
@@ -2132,27 +2169,27 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
     if isinstance(data, (str,PosixPath)):
         data, hdr = fits.getdata(data, header=True)
     else:
-        hdr = {}
+        hdr = fits.Header()
 
     # Drop empty axes
     flux = np.squeeze(data)
 
     # Get the frequency from the header if not provided
     if freq == 0:
-        freq = hdr.get("RESTFRQ", default=freq) * u.Hz
+        freq = hdr.get("RESTFRQ", freq) * u.Hz
         freq = freq.to(u.GHz)
     else:
         freq *= u.GHz
 
     # Get the beam minor and major axis from the header if not provided
     if bmin == 0:
-        bmin = hdr.get("BMIN", default=bmin) * u.deg
+        bmin = hdr.get("BMIN", bmin) * u.deg
         bmin = bmin.to(u.arcsec)
     else:
         bmin *= u.arcsec
 
     if bmaj == 0:
-        bmaj = hdr.get("BMAJ", default=bmaj) * u.deg
+        bmaj = hdr.get("BMAJ", bmaj) * u.deg
         bmaj = bmaj.to(u.arcsec)
     else:
         bmaj *= u.arcsec
@@ -2173,7 +2210,8 @@ def Tb(data, outfile="", freq=0, bmin=0, bmaj=0, overwrite=False, verbose=False)
     temp = flux * (u.Jy / beam).to(u.K, equivalencies=to_Tb)
 
     # Write flux to fits file if required
-    write_fits(outfile, temp, hdr, overwrite, verbose)
+    if outfile is not None:
+        write_fits(outfile, temp, hdr, overwrite, verbose)
 
     return temp.value
 
@@ -2191,6 +2229,7 @@ def horizontal_cut(
     align=True, 
     show=True,
     savefig=None,
+    rescale=True,
     bright_temp=True,
     return_data=False, 
     verbose=False, 
@@ -2228,8 +2267,7 @@ def horizontal_cut(
                 cut = d[:, img_center]
 
         # Convert data into brightness temperature, if possible
-        bright_temp = False if lam == 'alpha' else True
-        if bright_temp:
+        if bright_temp and lam != 'alpha':
             try:
                 cut = Tb(
                     data=cut,
@@ -2238,8 +2276,8 @@ def horizontal_cut(
                     bmaj=hdr.get("bmaj") * u.deg.to(u.arcsec),
                 )
             except Exception as e:
-                print_('Cannot convert to temperature. \
-                Frequency or beam keywords not available', True, bold=True)
+                print_('Cannot convert to temperature. '\
+                'Frequency or beam keywords not available', True, bold=True)
 
         # Offset from the center of the image
         offset = np.linspace(-FOV / 2, FOV / 2, naxis1)
@@ -2307,7 +2345,7 @@ def horizontal_cut(
 
         # Drop empty axes. Flip and rescale
         data = np.fliplr(np.squeeze(data))
-        if lam != 'alpha' and not bright_temp:
+        if lam != 'alpha' and not bright_temp and rescale:
             data *= 1e3
 
         offset, cut = angular_offset(data, hdr, cut_along=cut_along)
@@ -3063,7 +3101,10 @@ def interpolate_points(f=None, npoints=4, values=None, x=None, y=None, z=None, d
             plt.figure(figsize=(10,10))
 
             plt.subplot(211)
-            plt.title(r'$f(x,y) = \sqrt{x^2+y^2}$\\'+f'sampled at {int(n)} random points')
+            plt.title(
+                r'$f(x,y) = \sqrt{x^2+y^2}$\\' + \
+                f'sampled at {int(npoints)} random points'
+            )
             plt.imshow(f(X,Y).T, extent=(a,b,a,b), origin='lower')
             plt.plot(points[:,0], points[:,1], 'k.', ms=2, color='black')
             plt.yticks([])
